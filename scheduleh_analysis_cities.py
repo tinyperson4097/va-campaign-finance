@@ -164,6 +164,9 @@ def main():
                        help='BigQuery table name (default: schedule_h)')
     parser.add_argument('--output-csv', type=str,
                        help='Path to a CSV file to save the results')
+    parser.add_argument('--cities', nargs='+', 
+                       default=["blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"],
+                       help='Cities to analyze (default: blacksburg leesburg winchester alexandria arlington richmond lynchburg "newport news" "virginia beach" roanoke)')
     
     args = parser.parse_args()
     
@@ -172,7 +175,7 @@ def main():
             project_id=args.project_id,
             dataset_id=args.dataset,
             table_id=args.table,
-            districts=["blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"],
+            districts=args.cities,
             offices=["city council", "mayor", "town council"]
         )
 

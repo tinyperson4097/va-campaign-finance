@@ -620,42 +620,46 @@ class VirginiaDataProcessor:
         
         office = str(office_sought).lower().strip()
         
-        if 'delegate' in office:
+        # Remove district names from office_sought_normal
+        # Extract base office by removing district-specific parts
+        office_clean = re.sub(r'\s*-\s*.*$', '', office)  # Remove everything after dash
+        office_clean = re.sub(r'\b(prince william county|blue ridge district|at large)\b', '', office_clean).strip()
+        office_clean = re.sub(r'\s+', ' ', office_clean)  # Clean up multiple spaces
+        
+        if 'delegate' in office_clean:
             return 'delegate'
-        elif 'senator' in office or 'senate' in office:
+        elif 'senator' in office_clean or 'senate' in office_clean:
             return 'senator'
-        elif 'governor' in office and 'lieutenant' not in office:
+        elif 'governor' in office_clean and 'lieutenant' not in office_clean:
             return 'governor'
-        elif 'lieutenant' in office and 'governor' in office:
+        elif 'lieutenant' in office_clean and 'governor' in office_clean:
             return 'lieutenant governor'
-        elif 'attorney' in office and 'general' in office:
+        elif 'attorney' in office_clean and 'general' in office_clean:
             return 'attorney general'
-        elif 'treasurer' in office:
+        elif 'treasurer' in office_clean:
             return 'treasurer'
-        elif 'secretary' in office and 'commonwealth' in office:
+        elif 'secretary' in office_clean and 'commonwealth' in office_clean:
             return 'secretary of the commonwealth'
-        elif 'county' in office and 'board' in office and ('chair' in office or 'chairman' in office):
-            return 'chair county board'
-        elif 'county' in office and 'board' in office:
-            return 'county board'
-        elif 'school' in office and 'board' in office:
-            return 'school board'
-        elif 'city council' in office or 'town council' in office:
-            return 'city council'
-        elif 'mayor' in office:
-            return 'mayor'
-        elif 'sheriff' in office:
-            return 'sheriff'
-        elif 'clerk' in office and 'court' in office:
-            return 'clerk of court'
-        elif 'commonwealth' in office and 'attorney' in office:
-            return 'commonwealth attorney'
-        elif 'supervisors' in office and ('chairman' in office or 'chair' in office):
+        elif ('supervisor' in office_clean or 'county board' in office_clean) and ('chair' in office_clean or 'chairman' in office_clean):
             return 'chair board of supervisors'
-        elif 'supervisors' in office:
+        elif 'supervisor' in office_clean or 'county board' in office_clean:
             return 'member board of supervisors'
+        elif 'school' in office_clean and 'board' in office_clean and ('chair' in office_clean or 'chairman' in office_clean):
+            return 'chair school board'
+        elif 'school' in office_clean and 'board' in office_clean:
+            return 'school board'
+        elif 'city council' in office_clean or 'town council' in office_clean:
+            return 'city council'
+        elif 'mayor' in office_clean:
+            return 'mayor'
+        elif 'sheriff' in office_clean:
+            return 'sheriff'
+        elif 'clerk' in office_clean and 'court' in office_clean:
+            return 'clerk of court'
+        elif 'commonwealth' in office_clean and 'attorney' in office_clean:
+            return 'commonwealth attorney'
         else:
-            return office
+            return office_clean
     
     def _determine_government_level(self, office_sought_normal: str, district: str) -> str:
         """Determine the level of government based on office and district."""
@@ -680,53 +684,68 @@ class VirginiaDataProcessor:
     
     def _normalize_district(self, district: str, candidate_city: str = None, level: str = None, office_sought: str = None) -> str:
         """Extract numerical part of district with no leading zeros."""
-        # If district is empty/null, use candidate city
-        if pd.isna(district) or str(district).strip() == '':
-            if candidate_city and not pd.isna(candidate_city):
-                return candidate_city.strip()
-            return None
+        # Get normalized office for special handling
+        office_sought_normal = self._normalize_office_sought(office_sought) if office_sought else None
         
-        district_str = str(district).strip()
-        
-        # Check if office_sought contains "at large" or similar
+        # Check if office_sought contains "at large" or similar variations
         at_large = False
         if office_sought and not pd.isna(office_sought):
             office_lower = str(office_sought).lower()
-            if 'at large' in office_lower or 'at-large' in office_lower or 'atlarge' in office_lower or 'large' in office_lower:
+            if any(term in office_lower for term in ['at large', 'at-large', 'atlarge', ' al ', ' al,', ' al.', 'at large']):
                 at_large = True
         
-        suffix = (' - ' + office_sought.split('-', 1)[1].strip()) if '-' in office_sought else ''
+        # Check if district contains at-large variations
+        if district and not pd.isna(district):
+            district_lower = str(district).lower().strip()
+            if any(term in district_lower for term in ['at large', 'at-large', 'atlarge', ' al ', ' al,', ' al.', 'at large']):
+                at_large = True
+        
+        suffix = (' - ' + office_sought.split('-', 1)[1].strip()) if office_sought and '-' in office_sought else ''
+        
+        # Special handling for mayors - always district 0
+        if office_sought_normal == 'mayor':
+            if level == 'local' and candidate_city and not pd.isna(candidate_city):
+                return f"{candidate_city.strip()} (0)".title()
+            return "0"
+        
+        # Special handling for at-large positions - always district 0
+        if at_large:
+            if level == 'local' and candidate_city and not pd.isna(candidate_city):
+                return f"{candidate_city.strip()} (0)".title()
+            return "0"
+        
+        # Handle empty/null district
+        if pd.isna(district) or str(district).strip() == '':
+            if level == 'local' and candidate_city and not pd.isna(candidate_city):
+                # For LOCAL entries with blank district: "City Name (0)"
+                return f"{candidate_city.strip()} (0)".title()
+            elif candidate_city and not pd.isna(candidate_city):
+                return candidate_city.strip().title()
+            return None
+        
+        district_str = str(district).strip()
         
         # Extract numbers from the district string
         numbers = re.findall(r'\d+', district_str)
         
         if numbers:
-
             # Take the first number found and remove leading zeros
             district_normal = str(int(numbers[0]))
-            #district_normal = None if numbers == 0 else district_normal
-            # Append "at large" if found in office_sought
-            if at_large:
-                district_normal += " at large"
-            # If level is local and candidate_city is available, append city
-            elif level == 'local' and candidate_city and not pd.isna(candidate_city):
-                district_normal += f" ({candidate_city.strip()})"
-                district_normal += suffix
-            return district_normal
-        
-        # If no numbers found
-        if at_large:
-            district_normal = "at large"
+            # For LOCAL entries: put city name before district
             if level == 'local' and candidate_city and not pd.isna(candidate_city):
-                district_normal += f" ({candidate_city.strip()})"
-            return district_normal
+                district_normal = f"{candidate_city.strip()} ({district_normal})"
+                district_normal += suffix
+            return district_normal.title()
         
-        # If no numbers found but level is local and city available, return city
+        # For entries with no numbers/letters: use 0
         if level == 'local' and candidate_city and not pd.isna(candidate_city):
-            return candidate_city.strip() + suffix
+            # Check if district has any letters or numbers
+            if not re.search(r'[a-zA-Z0-9]', district_str):
+                return f"{candidate_city.strip()} (0)".title()
+            else:
+                return f"{candidate_city.strip()} ({district_str})".title()
         
-
-        return district_str if district_str else None
+        return district_str.title() if district_str else None
     
     def _determine_primary_or_general(self, election_cycle: str) -> str:
         """Determine if election is primary or general based on election cycle."""

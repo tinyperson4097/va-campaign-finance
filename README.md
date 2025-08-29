@@ -21,7 +21,7 @@ A queryable database system for Virginia campaign finance data, with automated d
 
 ## 🎯 Quick Start
 
-### Just Run the processors
+### Option 0: Just run the processors for local election data (Lazy)
 1. Set up your environment
 ``` bash
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json" 
@@ -32,12 +32,12 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json"
 python3 schedulea-e-processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --skip-old-folders --folders-after [YEAR]
 
-#Process Schedules A through E, it will upload to BigQuery under schedule h
+#Process Schedules H, it will upload to BigQuery under schedule h
 python3 scheduleh-processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --folders-after [YEAR]
 
 ```
-3. Run the analysis
+3. Run the analysis on local elections to get a list of candidates
 ```bash
 #Analyze Schedules A through E production mode on remote data
 python3 schedulea-e-production_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
@@ -50,6 +50,11 @@ python3 scheduleh-analysis_cities.py --project-id va-campaign-finance --output-c
 
 #Analyze Schedules H prodcution mode for counties
 python3 scheduleh-analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
+```
+4. Use that list of candidates to aggregate local finance data
+```bash
+#Analyze Schedules A through E production mode on remote data
+python3 aggregate-local-financing.py ./analysis_results/cities_year.csv ./analysis_results/counties_year.csv
 ```
 
 
