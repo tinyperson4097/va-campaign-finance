@@ -22,7 +22,7 @@ A queryable database system for Virginia campaign finance data, with automated d
 ## 🎯 Quick Start
 
 ### Option 0: Just run the processors for local election data (Lazy)
-1. Set up your environment
+1. Set up your environment. Will need to ask for serviceaccount access.
 ``` bash
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json" 
 ```
@@ -33,7 +33,7 @@ python3 schedulea-e-processor.py --project-id va-campaign-finance
 #Options --mode [test]|[production] --skip-old-folders --folders-after [YEAR]
 
 #Process Schedules H, it will upload to BigQuery under schedule h
-python3 scheduleh-processor.py --project-id va-campaign-finance 
+python3 scheduleh_processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --folders-after [YEAR]
 
 ```
@@ -45,20 +45,20 @@ python3 schedulea-e-production_test.py --project-id va-campaign-finance --output
 #Analyze Schedules A through E test mode on local data (db file)
 python3 schedulea-e-test_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
 
-#Analyze Schedules H prodcution mode for cities
-python3 scheduleh-analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv
+#Analyze Schedules H production mode for cities
+python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv
 
 #Analyze Schedules H prodcution mode for counties
-python3 scheduleh-analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
+python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
 ```
 4. Use that list of candidates to aggregate local finance data
 ```bash
 #Analyze Schedules A through E production mode on remote data
-python3 aggregate-local-financing.py ./analysis_results/cities_year.csv ./analysis_results/counties_year.csv
+python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_year.csv --counties-csv ./analysis_results/counties_year.csv --cities-csv-output ./analysis_results/agg_cities_year.csv --counties-csv-output ./analysis_results/agg_counties_year.csv
 ```
+python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_2018.csv --counties-csv ./analysis_results/counties_2018.csv --cities-csv-output ./analysis_results/agg_cities_2018.csv --counties-csv-output ./analysis_results/agg_counties_2018.csv
 
-
-### Option 1: Complete Setup (Recommended)
+### Option 1: Complete Setup (COMING SOON)
 ```bash
 # 1. Install dependencies
 npm install
@@ -70,7 +70,7 @@ npm run full-build
 npm start
 ```
 
-### Option 2: Step by Step
+### Option 2: Step by Step (COMING SOON)
 ```bash
 # 1. Install dependencies
 npm install
@@ -88,12 +88,6 @@ npm run build --skip-download
 
 # 5. Start querying
 npm start
-```
-
-### Option 3: Try Demo First
-```bash
-npm install
-npm run demo     # See how it works with sample data
 ```
 
 ## 💬 Natural Language Queries
@@ -288,10 +282,7 @@ src/
 ├── query-engine.js       # Query API
 └── name-normalizer.js    # Name standardization
 
-data/                     # Downloaded CSV files
-├── 2024_08/
-├── 2024_07/
-└── ...
+
 ```
 
 ### Adding New Queries
@@ -318,11 +309,3 @@ The system will download any new files and update the database.
 **Name matching issues**: The normalization process handles many variations, but some edge cases may need manual review.
 
 **Large downloads**: The full dataset is substantial. Use `--skip-download` to work with existing data during development.
-
-### Getting Help
-
-Check the interactive mode for available queries and data statistics.
-
-## License
-
-ISC
