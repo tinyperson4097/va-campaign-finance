@@ -1,0 +1,31 @@
+{
+  "name": "virginia-public-access",
+  "version": "1.0.0",
+  "description": "Virginia Campaign Finance Database Query Tool",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "build": "node src/build-database.js",
+    "demo": "node demo-sample-data.js",
+    "download": "node src/selenium-downloader.js",
+    "download-recent": "node src/selenium-downloader.js --recent",
+    "download-all": "node src/selenium-downloader.js --all",
+    "download-test": "node src/selenium-downloader.js --test",
+    "validate": "node src/data-validator.js",
+    "full-build": "npm run download-recent && npm run build -- --skip-download",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["virginia", "campaign finance", "elections", "politics"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "sqlite3": "^5.1.6",
+    "csv-parser": "^3.0.0",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "fast-csv": "^4.3.6",
+    "string-similarity": "^4.0.4",
+    "selenium-webdriver": "^4.26.1"
+  }
+}
