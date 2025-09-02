@@ -63,14 +63,17 @@ python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output
 #Default is "loudoun", "prince william"
 ```
 4. Use that list of candidates to aggregate local finance data (total cost, max cost, average cost, number of candidates)
+
 ```bash
-#Analyze Aggregate Data for Cities
+#Analyze Aggregate Data for Cities & Counties
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_year.csv --counties-csv ./analysis_results/counties_year.csv --cities-csv-output ./analysis_results/agg_cities_year.csv --counties-csv-output ./analysis_results/agg_counties_year.csv
 
-#Analyze Aggregate Data for Counties
+#Analyze Aggregate Data Example
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_2018.csv --counties-csv ./analysis_results/counties_2018.csv --cities-csv-output ./analysis_results/agg_cities_2018.csv --counties-csv-output ./analysis_results/agg_counties_2018.csv
 ```
+
 ### Option 1: Complete Setup (COMING SOON)
+
 ```bash
 # 1. Install dependencies
 npm install
