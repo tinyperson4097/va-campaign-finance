@@ -27,33 +27,43 @@ A queryable database system for Virginia campaign finance data, with automated d
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json" 
 ```
 2. Run the processor you want
+
+GLITCHY OPTION, does not account for all duplicates but has complete list of transactions:
 ```bash
 #Process Schedules A through E, it will upload to BigQuery under virginia elections
 python3 schedulea-e-processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --skip-old-folders --folders-after [YEAR]
+```
 
+BETTER OPTION, accurate but only total figures:
+``` bash
 #Process Schedules H, it will upload to BigQuery under schedule h
 python3 scheduleh_processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --folders-after [YEAR]
 
 ```
 3. Run the analysis on local elections to get a list of candidates
+GLITCHY OPTION, does not account for all duplicates but has complete list of transactions:
 ```bash
 #Analyze Schedules A through E production mode on remote data
 python3 schedulea-e-production_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
 
 #Analyze Schedules A through E test mode on local data (db file)
 python3 schedulea-e-test_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
-
+```
+BETTER OPTION, accurate but only total figures:
+``` bash
 #Analyze Schedules H production mode for cities
-python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv
+python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv --cities city1 city2
+# Default is "blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"
 
 #Analyze Schedules H prodcution mode for counties
-python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
+python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv --counties county1 county2
+#Default is "loudoun", "prince william"
 ```
-4. Use that list of candidates to aggregate local finance data
+4. Use that list of candidates to aggregate local finance data (total cost, max cost, average cost, number of candidates)
 ```bash
-#Analyze Schedules A through E production mode on remote data
+#Analyze Aggregate Data
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_year.csv --counties-csv ./analysis_results/counties_year.csv --cities-csv-output ./analysis_results/agg_cities_year.csv --counties-csv-output ./analysis_results/agg_counties_year.csv
 ```
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_2018.csv --counties-csv ./analysis_results/counties_2018.csv --cities-csv-output ./analysis_results/agg_cities_2018.csv --counties-csv-output ./analysis_results/agg_counties_2018.csv
