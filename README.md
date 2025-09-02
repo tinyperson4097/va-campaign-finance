@@ -43,6 +43,7 @@ python3 scheduleh_processor.py --project-id va-campaign-finance
 
 ```
 3. Run the analysis on local elections to get a list of candidates
+
 GLITCHY OPTION, does not account for all duplicates but has complete list of transactions:
 ```bash
 #Analyze Schedules A through E production mode on remote data
