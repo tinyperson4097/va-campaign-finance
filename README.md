@@ -48,18 +48,22 @@ GLITCHY OPTION, does not account for all duplicates but has complete list of tra
 ```bash
 #Analyze Schedules A through E production mode on remote data
 python3 schedulea-e-production_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
-
+```
+```bash
 #Analyze Schedules A through E test mode on local data (db file)
 python3 schedulea-e-test_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
 ```
 BETTER OPTION, accurate but only total figures:
 ``` bash
 #Analyze Schedules H production mode for cities
-python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv --cities city1 city2
+python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv
+#Options: --cities [CITY_ONE] [CITY_TWO]...[CITY_N]
 # Default is "blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"
-
+```
+``` bash
 #Analyze Schedules H prodcution mode for counties
-python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv --counties county1 county2
+python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
+#Options: --counties [COUNTY_ONE] [COUNTY_TWO]...[COUNTY_N]
 #Default is "loudoun", "prince william"
 ```
 4. Use that list of candidates to aggregate local finance data (total cost, max cost, average cost, number of candidates)
@@ -67,7 +71,9 @@ python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output
 ```bash
 #Analyze Aggregate Data for Cities & Counties
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_year.csv --counties-csv ./analysis_results/counties_year.csv --cities-csv-output ./analysis_results/agg_cities_year.csv --counties-csv-output ./analysis_results/agg_counties_year.csv
+```
 
+```bash
 #Analyze Aggregate Data Example
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_2018.csv --counties-csv ./analysis_results/counties_2018.csv --cities-csv-output ./analysis_results/agg_cities_2018.csv --counties-csv-output ./analysis_results/agg_counties_2018.csv
 ```
