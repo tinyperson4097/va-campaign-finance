@@ -151,10 +151,16 @@ class ScheduleHProcessor:
                 
                 # Drop NaN early so nothing gets concatenated
                 df = df.fillna("").replace("nan", "")
+                records_processed = 0
+                records_created = 0
                 for _, row in df.iterrows():
+                    records_processed += 1
                     schedule_h_record = self._map_old_row_to_schedule_h(row, folder_name)
                     if schedule_h_record:
+                        records_created += 1
                         schedule_h_records.append(schedule_h_record)
+                
+                logger.info(f"    {filename}: {records_processed} rows processed, {records_created} records created")
             except UnicodeDecodeError as e:
                 logger.warning(f"    Encoding error in {filename}: {e} - skipping file")
                 continue
@@ -193,6 +199,8 @@ class ScheduleHProcessor:
                         'filing_date': row.get('FilingDate'),
                         'start_date': row.get('StartDate'),
                         'end_date': row.get('EndDate'),
+                        'due_date': row.get('DueDate'),
+                        'amendment_count': pd.to_numeric(row.get('AmendmentCount'), errors='coerce') or 0,
                         'party': row.get('Party'),
                         'office_sought': row.get('OfficeSought'),
                         'district': row.get('District'),
@@ -229,10 +237,16 @@ class ScheduleHProcessor:
                 
                 # Drop NaN early so nothing gets concatenated
                 df = df.fillna("").replace("nan", "")
+                records_processed = 0
+                records_created = 0
                 for _, row in df.iterrows():
+                    records_processed += 1
                     schedule_h_record = self._map_new_row_to_schedule_h(row, folder_name, reports)
                     if schedule_h_record:
+                        records_created += 1
                         schedule_h_records.append(schedule_h_record)
+                
+                logger.info(f"    {filename}: {records_processed} rows processed, {records_created} records created")
             except UnicodeDecodeError as e:
                 logger.warning(f"    Encoding error in {filename}: {e} - skipping file")
                 continue
@@ -255,8 +269,27 @@ class ScheduleHProcessor:
                 except (ValueError, TypeError):
                     continue
         
-        if total_disbursements is None:
-            return None
+        # Include all records - don't filter based on disbursements
+        
+        starting_balance = None
+        sb_fields = ['Starting Balance', 'STARTING_BALANCE', 'BeginnningBalance', 'Begin Cash Bal']
+        for field in sb_fields:
+            if field in row and pd.notna(row[field]):
+                try:
+                    starting_balance  = float(row[field])
+                    break
+                except (ValueError, TypeError):
+                    continue
+        
+        ending_balance = None
+        eb_fields = ['Ending Balance', 'ENDING_BALANCE', 'EndingBalance']
+        for field in eb_fields:
+            if field in row and pd.notna(row[field]):
+                try:
+                    ending_balance  = float(row[field])
+                    break
+                except (ValueError, TypeError):
+                    continue
         
         # Extract and normalize names
         candidate_name = self._extract_candidate_name_old(row)
@@ -284,22 +317,43 @@ class ScheduleHProcessor:
             'level': level,
             'schedule_type': 'ScheduleH',
             'total_disbursements': total_disbursements,
+            'starting_balance': starting_balance,
+            'ending_balance': ending_balance,
             'data_source': 'old',
             'folder_name': folder_name
         }
     
     def _map_new_row_to_schedule_h(self, row: pd.Series, folder_name: str, reports: Dict) -> Optional[Dict]:
         """Map new format row to Schedule H dictionary."""
-        # Extract total disbursements
+        # Extract total disbursements - allow all values including None
         try:
             total_disbursements = float(row.get('TotalDisbursements', 0))
         except (ValueError, TypeError):
-            return None
+            total_disbursements = None
         
-        if not total_disbursements:
-            return None
+        # Include all records - don't filter out zero or missing disbursements
+        
+        try:
+            starting_balance = float(row.get('BeginningBalance', 0))
+        except (ValueError, TypeError):
+            starting_balance = None
+        
+        try:
+            ending_balance = float(row.get('EndingBalance', 0))
+        except (ValueError, TypeError):
+            ending_balance = None
+
+        try:
+            line_19= float(row.get('ExpendableFundsBalance', 0))
+        except (ValueError, TypeError):
+            line_19 = None
         
         report_info = reports.get(row.get('ReportId'), {})
+        
+        # Debug logging for missing reports
+        report_id = row.get('ReportId')
+        if not report_info and report_id:
+            logger.warning(f"Schedule H record found but no matching Report.csv entry for ReportId: {report_id}")
         
         # Get office sought and district for normalization
         office_sought = report_info.get('office_sought')
@@ -319,6 +373,8 @@ class ScheduleHProcessor:
             'candidate_name_normalized': self._normalize_name(report_info.get('candidate_name')),
             'report_year': report_info.get('report_year'),
             'report_date': report_info.get('filing_date'),
+            'due_date': report_info.get('due_date'),
+            'amendment_count': report_info.get('amendment_count', 0),
             'party': report_info.get('party'),
             'office_sought': office_sought,
             'office_sought_normal': office_sought_normal,
@@ -332,6 +388,9 @@ class ScheduleHProcessor:
             'election_cycle_end_date': report_info.get('election_cycle_end_date'),
             'schedule_type': 'ScheduleH',
             'total_disbursements': total_disbursements,
+            'starting_balance': starting_balance,
+            'ending_balance': ending_balance,
+            'line_19': line_19,
             'data_source': 'new',
             'folder_name': folder_name
         }
@@ -350,7 +409,7 @@ class ScheduleHProcessor:
         return str(row.get('Committee Name') or row.get('COMMITTEE_NAME') or '').strip()
     
     def _normalize_name(self, name: str) -> str:
-        """Basic name normalization."""
+        """Enhanced name normalization with title/honorific removal and middle name standardization."""
         if not name:
             return ''
         
@@ -358,7 +417,119 @@ class ScheduleHProcessor:
         normalized = str(name).upper().strip()
         normalized = re.sub(r'\s+', ' ', normalized)  # Replace multiple spaces with single space
         
-        return normalized
+        # Remove all titles and honorifics (keep suffixes like JR, SR, III, IV, V)
+        titles_to_remove = [
+            # Political titles
+            r'\bDELEGATE\b', r'\bDEL\.?\b',
+            r'\bSENATOR\b', r'\bSEN\.?\b',
+            r'\bGOVERNOR\b', r'\bGOV\.?\b',
+            r'\bLIEUTENANT GOVERNOR\b', r'\bLT\.? GOV\.?\b', r'\bLIEUT\.? GOV\.?\b',
+            r'\bATTORNEY GENERAL\b', r'\bAG\b', r'\bA\.G\.?\b',
+            r'\bMAYOR\b', r'\bSHERIFF\b',
+            
+            # Personal honorifics
+            r'\bTHE HONORABLE\b', r'\bHONORABLE\b', r'\bHON\.?\b',
+            r'\bMR\.?\b', r'\bMRS\.?\b', r'\bMS\.?\b', r'\bMISS\.?\b',
+            r'\bDR\.?\b', r'\bDOCTOR\b',
+            r'\bPROF\.?\b', r'\bPROFESSOR\b',
+            r'\bREV\.?\b', r'\bREVEREND\b',
+            
+            # Military titles
+            r'\bCAPT\.?\b', r'\bCAPTAIN\b',
+            r'\bCOL\.?\b', r'\bCOLONEL\b',
+            r'\bMAJ\.?\b', r'\bMAJOR\b',
+            r'\bLT\.?\b', r'\bLIEUTENANT\b',
+            r'\bGEN\.?\b', r'\bGENERAL\b',
+            
+            # Professional titles
+            r'\bESQ\.?\b', r'\bESQUIRE\b',
+        ]
+        
+        # Remove titles (but keep family suffixes)
+        for pattern in titles_to_remove:
+            normalized = re.sub(pattern, '', normalized)
+        
+        # Clean up punctuation and extra spaces
+        normalized = re.sub(r'^\W+', '', normalized)  # Remove leading non-word characters (periods, etc.)
+        normalized = re.sub(r'\W+$', '', normalized)  # Remove trailing non-word characters
+        normalized = re.sub(r'\s+', ' ', normalized).strip()  # Replace multiple spaces with single space
+        
+        # Normalize to first and last name only (remove middle names/initials for matching)
+        return self._extract_first_last_name(normalized)
+    
+    def _extract_first_last_name(self, name: str) -> str:
+        """Extract first and last name, removing middle names/initials for consistent matching."""
+        if not name:
+            return ''
+        
+        # Normalize hyphens - remove them to handle hyphenated vs non-hyphenated variations
+        # This makes 'MICHELLE-ANN' = 'MICHELLE ANN' and 'LOPES-MALDONADO' = 'LOPES MALDONADO'
+        normalized_name = name.replace('-', ' ')
+        
+        # Split into parts
+        parts = normalized_name.split()
+        if len(parts) < 2:
+            return name  # Return as-is if less than 2 parts
+        
+        # Identify suffixes (JR, SR, III, IV, V)
+        suffixes = ['JR', 'SR', 'III', 'IV', 'V', 'JUNIOR', 'SENIOR']
+        suffix_parts = []
+        name_parts = []
+        
+        # Separate suffixes from name parts
+        for part in parts:
+            if part in suffixes:
+                suffix_parts.append(part)
+            else:
+                name_parts.append(part)
+        
+        if len(name_parts) < 2:
+            return name  # Return original if we can't identify first/last
+        
+        # Extract first and last name (ignore middle parts)
+        first_name = name_parts[0]
+        last_name = name_parts[-1]
+        
+        # Log potential nickname matches for manual review
+        #self._log_potential_nickname_matches(first_name, last_name)
+        
+        # Rebuild: first + last + suffixes
+        result_parts = [first_name, last_name] + suffix_parts
+        return ' '.join(result_parts)
+    
+    def _log_potential_nickname_matches(self, first_name: str, last_name: str):
+        """Log potential nickname/name variations for manual review."""
+        # Common nickname patterns that might need manual review
+        potential_nicknames = {
+            'PATRICK': ['PAT'], 'PAT': ['PATRICK'],
+            'DANIEL': ['DAN'], 'DAN': ['DANIEL'], 
+            'MICHAEL': ['MIKE'], 'MIKE': ['MICHAEL'],
+            'ROBERT': ['BOB', 'ROB'], 'BOB': ['ROBERT'], 'ROB': ['ROBERT'],
+            'WILLIAM': ['BILL', 'WILL'], 'BILL': ['WILLIAM'], 'WILL': ['WILLIAM'],
+            'RICHARD': ['RICK', 'DICK'], 'RICK': ['RICHARD'], 'DICK': ['RICHARD'],
+            'ELIZABETH': ['LIZ', 'BETH'], 'LIZ': ['ELIZABETH'], 'BETH': ['ELIZABETH'],
+            'CHRISTOPHER': ['CHRIS'], 'CHRIS': ['CHRISTOPHER'],
+            'MATTHEW': ['MATT'], 'MATT': ['MATTHEW'],
+            'ANTHONY': ['TONY'], 'TONY': ['ANTHONY'],
+            'JOSEPH': ['JOE'], 'JOE': ['JOSEPH'],
+            'JAMES': ['JIM'], 'JIM': ['JAMES']
+        }
+        
+        # Common surname variations that might need manual review  
+        potential_surname_variations = {
+            'LOPEZ': ['LOPES'], 'LOPES': ['LOPEZ'],
+            'JOHNSON': ['JOHNSTON'], 'JOHNSTON': ['JOHNSON'],
+            'GARCIA': ['GARCIA'], # Placeholder for accent variations
+            'RODRIGUEZ': ['RODRIQUEZ'], 'RODRIQUEZ': ['RODRIGUEZ']
+        }
+        
+        # Check if this name has potential nickname matches
+        if first_name in potential_nicknames:
+            logger.info(f"POTENTIAL_NICKNAME_MATCH: '{first_name} {last_name}' - could match: {[f'{alt} {last_name}' for alt in potential_nicknames[first_name]]}")
+        
+        # Check if this surname has potential variations
+        if last_name in potential_surname_variations:
+            logger.info(f"POTENTIAL_SURNAME_VARIATION: '{first_name} {last_name}' - could match: {[f'{first_name} {alt}' for alt in potential_surname_variations[last_name]]}")
     
     def _normalize_office_sought(self, office_sought: str) -> str:
         """Normalize office_sought to standard categories."""
@@ -370,26 +541,35 @@ class ScheduleHProcessor:
         # Remove district names from office_sought_normal
         # Extract base office by removing district-specific parts
         office_clean = re.sub(r'\s*-\s*.*$', '', office)  # Remove everything after dash
-        office_clean = re.sub(r'\b(prince william county|blue ridge district|at large)\b', '', office_clean).strip()
+        office_clean = re.sub(r'\b(prince william county|blue ridge district|arlington county|at large)\b', '', office_clean).strip()
         office_clean = re.sub(r'\s+', ' ', office_clean)  # Clean up multiple spaces
         
-        if 'delegate' in office_clean:
+        # Handle abbreviations and specific mappings first
+        if office_clean in ['hod', 'h.o.d.']:
+            return 'delegate'
+        elif office_clean in ['ag', 'a.g.']:
+            return 'attorney general'
+        elif office_clean in ['gov', 'governor']:
+            return 'governor'
+        elif any(abbrev in office_clean for abbrev in ['lt gov', 'lt. gov', 'lieutenant gov', 'lieut gov', 'lieu gov']):
+            return 'lieutenant governor'
+        elif 'delegate' in office_clean or 'hod' in office_clean:
             return 'delegate'
         elif 'senator' in office_clean or 'senate' in office_clean:
             return 'senator'
-        elif 'governor' in office_clean and 'lieutenant' not in office_clean:
+        elif 'governor' in office_clean and 'lieutenant' not in office_clean and 'lt' not in office_clean:
             return 'governor'
-        elif 'lieutenant' in office_clean and 'governor' in office_clean:
+        elif any(term in office_clean for term in ['lieutenant', 'lt']) and 'governor' in office_clean:
             return 'lieutenant governor'
-        elif 'attorney' in office_clean and 'general' in office_clean:
+        elif ('attorney' in office_clean and 'general' in office_clean) or office_clean in ['ag', 'a.g.']:
             return 'attorney general'
         elif 'treasurer' in office_clean:
             return 'treasurer'
         elif 'secretary' in office_clean and 'commonwealth' in office_clean:
             return 'secretary of the commonwealth'
-        elif ('supervisor' in office_clean or 'county board' in office_clean) and ('chair' in office_clean or 'chairman' in office_clean):
+        elif ('member' in office_clean and 'county board' in office_clean) or ('supervisor' in office_clean or 'county board' in office_clean) and ('chair' in office_clean or 'chairman' in office_clean):
             return 'chair board of supervisors'
-        elif 'supervisor' in office_clean or 'county board' in office_clean:
+        elif ('member' in office_clean and 'board' in office_clean) or 'supervisor' in office_clean or 'county board' in office_clean:
             return 'member board of supervisors'
         elif 'school' in office_clean and 'board' in office_clean and ('chair' in office_clean or 'chairman' in office_clean):
             return 'chair school board'

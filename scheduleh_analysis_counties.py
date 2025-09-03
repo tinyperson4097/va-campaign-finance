@@ -80,14 +80,15 @@ def get_city_to_county_mapping() -> Dict[str, str]:
         'potomac magisterial': 'prince william',
         'woodbridge magisterial': 'prince william',
         'brentsville magisterial': 'prince william',
-        
+        #Arlington
+        'arlington': 'arlington',
         # Fairfax County
         'alexandria': 'fairfax',
         'falls church': 'fairfax',
         'fairfax': 'fairfax',
         'fairfax city': 'fairfax',
         'annandale': 'fairfax',
-        'arlington': 'fairfax',
+        #'arlington': 'fairfax',
         'burke': 'fairfax',
         'centreville': 'fairfax',
         'chantilly': 'fairfax',

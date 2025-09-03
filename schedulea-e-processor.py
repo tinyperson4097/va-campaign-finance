@@ -267,6 +267,8 @@ class VirginiaDataProcessor:
                     'election_cycle': row.get('ElectionCycle'),
                     'election_cycle_start_date': row.get('ElectionCycleStartDate'),
                     'election_cycle_end_date': row.get('ElectionCycleEndDate'),
+                    'due_date': row.get('DueDate'),
+                    'amendment_count': pd.to_numeric(row.get('Amendment'), errors='coerce'),
                     'data_source': 'new',
                     'folder_name': folder_name
                 }
@@ -378,6 +380,8 @@ class VirginiaDataProcessor:
                         'election_cycle': row.get('ElectionCycle'),
                         'election_cycle_start_date': row.get('ElectionCycleStartDate'),
                         'election_cycle_end_date': row.get('ElectionCycleEndDate'),
+                        'due_date': row.get('DueDate'),
+                        'amendment_count': pd.to_numeric(row.get('Amendment'), errors='coerce'),
                         'data_source': 'new',
                         'folder_name': folder_name
                     }
@@ -603,7 +607,7 @@ class VirginiaDataProcessor:
         return ''
     
     def _normalize_name(self, name: str) -> str:
-        """Basic name normalization."""
+        """Enhanced name normalization with title/honorific removal and middle name standardization."""
         if not name:
             return ''
         
@@ -611,7 +615,119 @@ class VirginiaDataProcessor:
         normalized = str(name).upper().strip()
         normalized = re.sub(r'\s+', ' ', normalized)  # Replace multiple spaces with single space
         
-        return normalized
+        # Remove all titles and honorifics (keep suffixes like JR, SR, III, IV, V)
+        titles_to_remove = [
+            # Political titles
+            r'\bDELEGATE\b', r'\bDEL\.?\b',
+            r'\bSENATOR\b', r'\bSEN\.?\b',
+            r'\bGOVERNOR\b', r'\bGOV\.?\b',
+            r'\bLIEUTENANT GOVERNOR\b', r'\bLT\.? GOV\.?\b', r'\bLIEUT\.? GOV\.?\b',
+            r'\bATTORNEY GENERAL\b', r'\bAG\b', r'\bA\.G\.?\b',
+            r'\bMAYOR\b', r'\bSHERIFF\b',
+            
+            # Personal honorifics
+            r'\bTHE HONORABLE\b', r'\bHONORABLE\b', r'\bHON\.?\b',
+            r'\bMR\.?\b', r'\bMRS\.?\b', r'\bMS\.?\b', r'\bMISS\.?\b',
+            r'\bDR\.?\b', r'\bDOCTOR\b',
+            r'\bPROF\.?\b', r'\bPROFESSOR\b',
+            r'\bREV\.?\b', r'\bREVEREND\b',
+            
+            # Military titles
+            r'\bCAPT\.?\b', r'\bCAPTAIN\b',
+            r'\bCOL\.?\b', r'\bCOLONEL\b',
+            r'\bMAJ\.?\b', r'\bMAJOR\b',
+            r'\bLT\.?\b', r'\bLIEUTENANT\b',
+            r'\bGEN\.?\b', r'\bGENERAL\b',
+            
+            # Professional titles
+            r'\bESQ\.?\b', r'\bESQUIRE\b',
+        ]
+        
+        # Remove titles (but keep family suffixes)
+        for pattern in titles_to_remove:
+            normalized = re.sub(pattern, '', normalized)
+        
+        # Clean up punctuation and extra spaces
+        normalized = re.sub(r'^\W+', '', normalized)  # Remove leading non-word characters (periods, etc.)
+        normalized = re.sub(r'\W+$', '', normalized)  # Remove trailing non-word characters
+        normalized = re.sub(r'\s+', ' ', normalized).strip()  # Replace multiple spaces with single space
+        
+        # Normalize to first and last name only (remove middle names/initials for matching)
+        return self._extract_first_last_name(normalized)
+    
+    def _extract_first_last_name(self, name: str) -> str:
+        """Extract first and last name, removing middle names/initials for consistent matching."""
+        if not name:
+            return ''
+        
+        # Normalize hyphens - remove them to handle hyphenated vs non-hyphenated variations
+        # This makes 'MICHELLE-ANN' = 'MICHELLE ANN' and 'LOPES-MALDONADO' = 'LOPES MALDONADO'
+        normalized_name = name.replace('-', ' ')
+        
+        # Split into parts
+        parts = normalized_name.split()
+        if len(parts) < 2:
+            return name  # Return as-is if less than 2 parts
+        
+        # Identify suffixes (JR, SR, III, IV, V)
+        suffixes = ['JR', 'SR', 'III', 'IV', 'V', 'JUNIOR', 'SENIOR']
+        suffix_parts = []
+        name_parts = []
+        
+        # Separate suffixes from name parts
+        for part in parts:
+            if part in suffixes:
+                suffix_parts.append(part)
+            else:
+                name_parts.append(part)
+        
+        if len(name_parts) < 2:
+            return name  # Return original if we can't identify first/last
+        
+        # Extract first and last name (ignore middle parts)
+        first_name = name_parts[0]
+        last_name = name_parts[-1]
+        
+        # Log potential nickname matches for manual review
+        #self._log_potential_nickname_matches(first_name, last_name)
+        
+        # Rebuild: first + last + suffixes
+        result_parts = [first_name, last_name] + suffix_parts
+        return ' '.join(result_parts)
+    
+    def _log_potential_nickname_matches(self, first_name: str, last_name: str):
+        """Log potential nickname/name variations for manual review."""
+        # Common nickname patterns that might need manual review
+        potential_nicknames = {
+            'PATRICK': ['PAT'], 'PAT': ['PATRICK'],
+            'DANIEL': ['DAN'], 'DAN': ['DANIEL'], 
+            'MICHAEL': ['MIKE'], 'MIKE': ['MICHAEL'],
+            'ROBERT': ['BOB', 'ROB', 'BOBBY'], 'BOB': ['ROBERT'], 'ROB': ['ROBERT'], 'BOBBY':['ROBERT'],
+            'WILLIAM': ['BILL', 'WILL'], 'BILL': ['WILLIAM'], 'WILL': ['WILLIAM'],
+            'RICHARD': ['RICK', 'DICK'], 'RICK': ['RICHARD'], 'DICK': ['RICHARD'],
+            'ELIZABETH': ['LIZ', 'BETH'], 'LIZ': ['ELIZABETH'], 'BETH': ['ELIZABETH'],
+            'CHRISTOPHER': ['CHRIS'], 'CHRIS': ['CHRISTOPHER'],
+            'MATTHEW': ['MATT'], 'MATT': ['MATTHEW'],
+            'ANTHONY': ['TONY'], 'TONY': ['ANTHONY'],
+            'JOSEPH': ['JOE'], 'JOE': ['JOSEPH'],
+            'JAMES': ['JIM'], 'JIM': ['JAMES']
+        }
+        
+        # Common surname variations that might need manual review  
+        potential_surname_variations = {
+            'LOPEZ': ['LOPES'], 'LOPES': ['LOPEZ'],
+            'JOHNSON': ['JOHNSTON'], 'JOHNSTON': ['JOHNSON'],
+            'GARCIA': ['GARCIA'], # Placeholder for accent variations
+            'RODRIGUEZ': ['RODRIQUEZ'], 'RODRIQUEZ': ['RODRIGUEZ']
+        }
+        
+        # Check if this name has potential nickname matches
+        if first_name in potential_nicknames:
+            logger.info(f"POTENTIAL_NICKNAME_MATCH: '{first_name} {last_name}' - could match: {[f'{alt} {last_name}' for alt in potential_nicknames[first_name]]}")
+        
+        # Check if this surname has potential variations
+        if last_name in potential_surname_variations:
+            logger.info(f"POTENTIAL_SURNAME_VARIATION: '{first_name} {last_name}' - could match: {[f'{first_name} {alt}' for alt in potential_surname_variations[last_name]]}")
     
     def _normalize_office_sought(self, office_sought: str) -> str:
         """Normalize office_sought to standard categories."""
@@ -623,26 +739,35 @@ class VirginiaDataProcessor:
         # Remove district names from office_sought_normal
         # Extract base office by removing district-specific parts
         office_clean = re.sub(r'\s*-\s*.*$', '', office)  # Remove everything after dash
-        office_clean = re.sub(r'\b(prince william county|blue ridge district|at large)\b', '', office_clean).strip()
+        office_clean = re.sub(r'\b(prince william county|blue ridge district|arlington county|at large)\b', '', office_clean).strip()
         office_clean = re.sub(r'\s+', ' ', office_clean)  # Clean up multiple spaces
         
-        if 'delegate' in office_clean:
+        # Handle abbreviations and specific mappings first
+        if office_clean in ['hod', 'h.o.d.']:
+            return 'delegate'
+        elif office_clean in ['ag', 'a.g.']:
+            return 'attorney general'
+        elif office_clean in ['gov', 'governor']:
+            return 'governor'
+        elif any(abbrev in office_clean for abbrev in ['lt gov', 'lt. gov', 'lieutenant gov', 'lieut gov', 'lieu gov']):
+            return 'lieutenant governor'
+        elif 'delegate' in office_clean or 'hod' in office_clean:
             return 'delegate'
         elif 'senator' in office_clean or 'senate' in office_clean:
             return 'senator'
-        elif 'governor' in office_clean and 'lieutenant' not in office_clean:
+        elif 'governor' in office_clean and 'lieutenant' not in office_clean and 'lt' not in office_clean:
             return 'governor'
-        elif 'lieutenant' in office_clean and 'governor' in office_clean:
+        elif any(term in office_clean for term in ['lieutenant', 'lt']) and 'governor' in office_clean:
             return 'lieutenant governor'
-        elif 'attorney' in office_clean and 'general' in office_clean:
+        elif ('attorney' in office_clean and 'general' in office_clean) or office_clean in ['ag', 'a.g.']:
             return 'attorney general'
         elif 'treasurer' in office_clean:
             return 'treasurer'
         elif 'secretary' in office_clean and 'commonwealth' in office_clean:
             return 'secretary of the commonwealth'
-        elif ('supervisor' in office_clean or 'county board' in office_clean) and ('chair' in office_clean or 'chairman' in office_clean):
+        elif ('member' in office_clean and 'county board' in office_clean) or ('supervisor' in office_clean or 'county board' in office_clean) and ('chair' in office_clean or 'chairman' in office_clean):
             return 'chair board of supervisors'
-        elif 'supervisor' in office_clean or 'county board' in office_clean:
+        elif ('member' in office_clean and 'board' in office_clean) or 'supervisor' in office_clean or 'county board' in office_clean:
             return 'member board of supervisors'
         elif 'school' in office_clean and 'board' in office_clean and ('chair' in office_clean or 'chairman' in office_clean):
             return 'chair school board'
