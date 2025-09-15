@@ -5,6 +5,7 @@ Processes only Schedule H files and uploads to BigQuery
 """
 
 import os
+import sys
 import pandas as pd
 import argparse
 from pathlib import Path
@@ -13,6 +14,15 @@ import logging
 from datetime import datetime
 import re
 import io
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import shared normalization functions
+from functions.name_normalization import (
+    normalize_name, normalize_office_sought, determine_government_level, 
+    normalize_district, determine_primary_or_general
+)
 
 # Production mode imports
 try:
@@ -70,6 +80,21 @@ class ScheduleHProcessor:
         """Extract schedule type from filename."""
         match = re.match(r'^(Schedule[A-Z])(_PAC)?\.csv$', filename, re.IGNORECASE)
         return match.group(1) if match else filename.replace('.csv', '')
+    
+    def _fix_embedded_quotes_universal(self, csv_data: str) -> str:
+        """Remove all quotes that are not directly before/after commas or newlines."""
+
+        cleaned_data = re.sub(r'(?<!^)(?<!,)["\'](?!,)(?!$)(?!\r?\n)', '', csv_data, flags=re.MULTILINE)
+        
+        return cleaned_data
+    
+
+    def _remove_commas_newlines_within_quoted_strings(self, csv_data: str) -> str:
+        """Remove commas and newlines that appear within quoted strings using parity tracking."""
+
+        cleaned_data = re.sub(r'([,\n])(?!")', '', csv_data)
+        
+        return cleaned_data
     
     def process_data(self) -> pd.DataFrame:
         """Main processing function that returns Schedule H DataFrame."""
@@ -145,12 +170,29 @@ class ScheduleHProcessor:
             logger.info(f"    Processing {filename}")
             
             try:
-                # Download and process CSV
+                # Download and process CSV with optimization
                 csv_data = blob.download_as_text(encoding='latin-1')
-                df = pd.read_csv(io.StringIO(csv_data), on_bad_lines="skip", low_memory=False)
+                csv_data = csv_data.replace("\r\n", "\n").replace("\r", "\n")
+                csv_data = self._fix_embedded_quotes_universal(csv_data)
+                csv_data = self._remove_commas_newlines_within_quoted_strings(csv_data)
+                csv_data = self._fix_embedded_quotes_universal(csv_data)
+                df = pd.read_csv(
+                    io.StringIO(csv_data), 
+                    engine='c',  # Use faster C engine
+                    on_bad_lines="skip", 
+                    low_memory=False,
+                    skip_blank_lines=True,
+                    skipinitialspace=True
+                )
                 
                 # Drop NaN early so nothing gets concatenated
                 df = df.fillna("").replace("nan", "")
+                
+                # Optimize dtypes for better performance
+                for col in df.select_dtypes(['object']).columns:
+                    unique_ratio = df[col].nunique() / len(df) if len(df) > 0 else 0
+                    if unique_ratio < 0.5 and df[col].nunique() > 1:
+                        df[col] = df[col].astype('category')
                 records_processed = 0
                 records_created = 0
                 for _, row in df.iterrows():
@@ -185,10 +227,27 @@ class ScheduleHProcessor:
             logger.info(f"  Processing Report.csv")
             try:
                 csv_data = report_blob.download_as_text(encoding='latin-1')
-                df_report = pd.read_csv(io.StringIO(csv_data), on_bad_lines="skip", low_memory=False)
+                csv_data = csv_data.replace("\r\n", "\n").replace("\r", "\n")
+                csv_data = self._fix_embedded_quotes_universal(csv_data)
+                csv_data = self._remove_commas_newlines_within_quoted_strings(csv_data)
+                csv_data = self._fix_embedded_quotes_universal(csv_data)
+                df_report = pd.read_csv(
+                    io.StringIO(csv_data), 
+                    engine='c',
+                    on_bad_lines="skip", 
+                    low_memory=False,
+                    skip_blank_lines=True,
+                    skipinitialspace=True
+                )
                 
                 # Drop NaN early so nothing gets concatenated
                 df_report = df_report.fillna("").replace("nan", "")
+                
+                # Optimize dtypes for report data
+                for col in df_report.select_dtypes(['object']).columns:
+                    unique_ratio = df_report[col].nunique() / len(df_report) if len(df_report) > 0 else 0
+                    if unique_ratio < 0.5 and df_report[col].nunique() > 1:
+                        df_report[col] = df_report[col].astype('category')
                 for _, row in df_report.iterrows():
                     report_data = {
                         'report_id': row.get('ReportId'),
@@ -233,10 +292,27 @@ class ScheduleHProcessor:
             
             try:
                 csv_data = blob.download_as_text(encoding='latin-1')
-                df = pd.read_csv(io.StringIO(csv_data), on_bad_lines="skip")
+                csv_data = csv_data.replace("\r\n", "\n").replace("\r", "\n")
+                csv_data = self._fix_embedded_quotes_universal(csv_data)
+                csv_data = self._remove_commas_newlines_within_quoted_strings(csv_data)
+                csv_data = self._fix_embedded_quotes_universal(csv_data)
+                df = pd.read_csv(
+                    io.StringIO(csv_data), 
+                    engine='c',
+                    on_bad_lines="skip",
+                    low_memory=False,
+                    skip_blank_lines=True,
+                    skipinitialspace=True
+                )
                 
                 # Drop NaN early so nothing gets concatenated
                 df = df.fillna("").replace("nan", "")
+                
+                # Optimize dtypes
+                for col in df.select_dtypes(['object']).columns:
+                    unique_ratio = df[col].nunique() / len(df) if len(df) > 0 else 0
+                    if unique_ratio < 0.5 and df[col].nunique() > 1:
+                        df[col] = df[col].astype('category')
                 records_processed = 0
                 records_created = 0
                 for _, row in df.iterrows():
@@ -297,16 +373,17 @@ class ScheduleHProcessor:
         # Get office sought and district for normalization
         office_sought = row.get('Office Code') or row.get('OFFICE_CODE')
         district = row.get('Office Sub Code') or row.get('OFFICE_SUB_CODE')
-        office_sought_normal = self._normalize_office_sought(office_sought)
-        level = self._determine_government_level(office_sought_normal, district)
-        district_normal = self._normalize_district(district, level=level, office_sought=office_sought)
+        office_sought_normal = normalize_office_sought(office_sought)
+        level = determine_government_level(office_sought_normal, district)
+        district_normal = normalize_district(district, level=level, office_sought=office_sought)
         
         return {
             'report_id': row.get('Committee Code') or row.get('COMMITTEE_CODE'),
             'committee_code': row.get('Committee Code') or row.get('COMMITTEE_CODE'),
+            'committee_name_normalized': normalize_name(row.get('Committee Name'), is_individual=False),
             'committee_name': row.get('Committee Name') or row.get('COMMITTEE_NAME'),
             'candidate_name': candidate_name,
-            'candidate_name_normalized': self._normalize_name(candidate_name),
+            'candidate_name_normalized': normalize_name(candidate_name, is_individual=True),
             'report_year': pd.to_numeric(row.get('Report Year') or row.get('REPORT_YEAR') or folder_name, errors='coerce'),
             'report_date': row.get('Date Received') or row.get('DATE_RECEIVED'),
             'party': row.get('Party') or row.get('Party_Desc'),
@@ -360,17 +437,18 @@ class ScheduleHProcessor:
         district = report_info.get('district')
         candidate_city = report_info.get('candidate_city')
         election_cycle = report_info.get('election_cycle')
-        office_sought_normal = self._normalize_office_sought(office_sought)
-        level = self._determine_government_level(office_sought_normal, district)
-        district_normal = self._normalize_district(district, candidate_city, level, office_sought)
-        primary_or_general = self._determine_primary_or_general(election_cycle)
+        office_sought_normal = normalize_office_sought(office_sought)
+        level = determine_government_level(office_sought_normal, district)
+        district_normal = normalize_district(district, candidate_city, level, office_sought)
+        primary_or_general = determine_primary_or_general(election_cycle)
         
         return {
             'report_id': row.get('ReportId'),
             'committee_code': report_info.get('committee_code'),
             'committee_name': report_info.get('committee_name'),
+            'committee_name_normalized': normalize_name(report_info.get('commitee_name'), is_individual=False),
             'candidate_name': report_info.get('candidate_name'),
-            'candidate_name_normalized': self._normalize_name(report_info.get('candidate_name')),
+            'candidate_name_normalized': normalize_name(report_info.get('candidate_name'), is_individual=True),
             'report_year': report_info.get('report_year'),
             'report_date': report_info.get('filing_date'),
             'due_date': report_info.get('due_date'),
@@ -408,298 +486,85 @@ class ScheduleHProcessor:
         # Fall back to committee name
         return str(row.get('Committee Name') or row.get('COMMITTEE_NAME') or '').strip()
     
-    def _normalize_name(self, name: str) -> str:
-        """Enhanced name normalization with title/honorific removal and middle name standardization."""
-        if not name:
-            return ''
-        
-        # Convert to uppercase, remove extra spaces, and basic cleanup
-        normalized = str(name).upper().strip()
-        normalized = re.sub(r'\s+', ' ', normalized)  # Replace multiple spaces with single space
-        
-        # Remove all titles and honorifics (keep suffixes like JR, SR, III, IV, V)
-        titles_to_remove = [
-            # Political titles
-            r'\bDELEGATE\b', r'\bDEL\.?\b',
-            r'\bSENATOR\b', r'\bSEN\.?\b',
-            r'\bGOVERNOR\b', r'\bGOV\.?\b',
-            r'\bLIEUTENANT GOVERNOR\b', r'\bLT\.? GOV\.?\b', r'\bLIEUT\.? GOV\.?\b',
-            r'\bATTORNEY GENERAL\b', r'\bAG\b', r'\bA\.G\.?\b',
-            r'\bMAYOR\b', r'\bSHERIFF\b',
-            
-            # Personal honorifics
-            r'\bTHE HONORABLE\b', r'\bHONORABLE\b', r'\bHON\.?\b',
-            r'\bMR\.?\b', r'\bMRS\.?\b', r'\bMS\.?\b', r'\bMISS\.?\b',
-            r'\bDR\.?\b', r'\bDOCTOR\b',
-            r'\bPROF\.?\b', r'\bPROFESSOR\b',
-            r'\bREV\.?\b', r'\bREVEREND\b',
-            
-            # Military titles
-            r'\bCAPT\.?\b', r'\bCAPTAIN\b',
-            r'\bCOL\.?\b', r'\bCOLONEL\b',
-            r'\bMAJ\.?\b', r'\bMAJOR\b',
-            r'\bLT\.?\b', r'\bLIEUTENANT\b',
-            r'\bGEN\.?\b', r'\bGENERAL\b',
-            
-            # Professional titles
-            r'\bESQ\.?\b', r'\bESQUIRE\b',
-        ]
-        
-        # Remove titles (but keep family suffixes)
-        for pattern in titles_to_remove:
-            normalized = re.sub(pattern, '', normalized)
-        
-        # Clean up punctuation and extra spaces
-        normalized = re.sub(r'^\W+', '', normalized)  # Remove leading non-word characters (periods, etc.)
-        normalized = re.sub(r'\W+$', '', normalized)  # Remove trailing non-word characters
-        normalized = re.sub(r'\s+', ' ', normalized).strip()  # Replace multiple spaces with single space
-        
-        # Normalize to first and last name only (remove middle names/initials for matching)
-        return self._extract_first_last_name(normalized)
     
-    def _extract_first_last_name(self, name: str) -> str:
-        """Extract first and last name, removing middle names/initials for consistent matching."""
-        if not name:
-            return ''
-        
-        # Normalize hyphens - remove them to handle hyphenated vs non-hyphenated variations
-        # This makes 'MICHELLE-ANN' = 'MICHELLE ANN' and 'LOPES-MALDONADO' = 'LOPES MALDONADO'
-        normalized_name = name.replace('-', ' ')
-        
-        # Split into parts
-        parts = normalized_name.split()
-        if len(parts) < 2:
-            return name  # Return as-is if less than 2 parts
-        
-        # Identify suffixes (JR, SR, III, IV, V)
-        suffixes = ['JR', 'SR', 'III', 'IV', 'V', 'JUNIOR', 'SENIOR']
-        suffix_parts = []
-        name_parts = []
-        
-        # Separate suffixes from name parts
-        for part in parts:
-            if part in suffixes:
-                suffix_parts.append(part)
-            else:
-                name_parts.append(part)
-        
-        if len(name_parts) < 2:
-            return name  # Return original if we can't identify first/last
-        
-        # Extract first and last name (ignore middle parts)
-        first_name = name_parts[0]
-        last_name = name_parts[-1]
-        
-        # Log potential nickname matches for manual review
-        #self._log_potential_nickname_matches(first_name, last_name)
-        
-        # Rebuild: first + last + suffixes
-        result_parts = [first_name, last_name] + suffix_parts
-        return ' '.join(result_parts)
     
-    def _log_potential_nickname_matches(self, first_name: str, last_name: str):
-        """Log potential nickname/name variations for manual review."""
-        # Common nickname patterns that might need manual review
-        potential_nicknames = {
-            'PATRICK': ['PAT'], 'PAT': ['PATRICK'],
-            'DANIEL': ['DAN'], 'DAN': ['DANIEL'], 
-            'MICHAEL': ['MIKE'], 'MIKE': ['MICHAEL'],
-            'ROBERT': ['BOB', 'ROB'], 'BOB': ['ROBERT'], 'ROB': ['ROBERT'],
-            'WILLIAM': ['BILL', 'WILL'], 'BILL': ['WILLIAM'], 'WILL': ['WILLIAM'],
-            'RICHARD': ['RICK', 'DICK'], 'RICK': ['RICHARD'], 'DICK': ['RICHARD'],
-            'ELIZABETH': ['LIZ', 'BETH'], 'LIZ': ['ELIZABETH'], 'BETH': ['ELIZABETH'],
-            'CHRISTOPHER': ['CHRIS'], 'CHRIS': ['CHRISTOPHER'],
-            'MATTHEW': ['MATT'], 'MATT': ['MATTHEW'],
-            'ANTHONY': ['TONY'], 'TONY': ['ANTHONY'],
-            'JOSEPH': ['JOE'], 'JOE': ['JOSEPH'],
-            'JAMES': ['JIM'], 'JIM': ['JAMES']
-        }
-        
-        # Common surname variations that might need manual review  
-        potential_surname_variations = {
-            'LOPEZ': ['LOPES'], 'LOPES': ['LOPEZ'],
-            'JOHNSON': ['JOHNSTON'], 'JOHNSTON': ['JOHNSON'],
-            'GARCIA': ['GARCIA'], # Placeholder for accent variations
-            'RODRIGUEZ': ['RODRIQUEZ'], 'RODRIQUEZ': ['RODRIGUEZ']
-        }
-        
-        # Check if this name has potential nickname matches
-        if first_name in potential_nicknames:
-            logger.info(f"POTENTIAL_NICKNAME_MATCH: '{first_name} {last_name}' - could match: {[f'{alt} {last_name}' for alt in potential_nicknames[first_name]]}")
-        
-        # Check if this surname has potential variations
-        if last_name in potential_surname_variations:
-            logger.info(f"POTENTIAL_SURNAME_VARIATION: '{first_name} {last_name}' - could match: {[f'{first_name} {alt}' for alt in potential_surname_variations[last_name]]}")
     
-    def _normalize_office_sought(self, office_sought: str) -> str:
-        """Normalize office_sought to standard categories."""
-        if pd.isna(office_sought):
-            return None
-        
-        office = str(office_sought).lower().strip()
-        
-        # Remove district names from office_sought_normal
-        # Extract base office by removing district-specific parts
-        office_clean = re.sub(r'\s*-\s*.*$', '', office)  # Remove everything after dash
-        office_clean = re.sub(r'\b(prince william county|blue ridge district|arlington county|at large)\b', '', office_clean).strip()
-        office_clean = re.sub(r'\s+', ' ', office_clean)  # Clean up multiple spaces
-        
-        # Handle abbreviations and specific mappings first
-        if office_clean in ['hod', 'h.o.d.']:
-            return 'delegate'
-        elif office_clean in ['ag', 'a.g.']:
-            return 'attorney general'
-        elif office_clean in ['gov', 'governor']:
-            return 'governor'
-        elif any(abbrev in office_clean for abbrev in ['lt gov', 'lt. gov', 'lieutenant gov', 'lieut gov', 'lieu gov']):
-            return 'lieutenant governor'
-        elif 'delegate' in office_clean or 'hod' in office_clean:
-            return 'delegate'
-        elif 'senator' in office_clean or 'senate' in office_clean:
-            return 'senator'
-        elif 'governor' in office_clean and 'lieutenant' not in office_clean and 'lt' not in office_clean:
-            return 'governor'
-        elif any(term in office_clean for term in ['lieutenant', 'lt']) and 'governor' in office_clean:
-            return 'lieutenant governor'
-        elif ('attorney' in office_clean and 'general' in office_clean) or office_clean in ['ag', 'a.g.']:
-            return 'attorney general'
-        elif 'treasurer' in office_clean:
-            return 'treasurer'
-        elif 'secretary' in office_clean and 'commonwealth' in office_clean:
-            return 'secretary of the commonwealth'
-        elif ('member' in office_clean and 'county board' in office_clean) or ('supervisor' in office_clean or 'county board' in office_clean) and ('chair' in office_clean or 'chairman' in office_clean):
-            return 'chair board of supervisors'
-        elif ('member' in office_clean and 'board' in office_clean) or 'supervisor' in office_clean or 'county board' in office_clean:
-            return 'member board of supervisors'
-        elif 'school' in office_clean and 'board' in office_clean and ('chair' in office_clean or 'chairman' in office_clean):
-            return 'chair school board'
-        elif 'school' in office_clean and 'board' in office_clean:
-            return 'school board'
-        elif 'city council' in office_clean or 'town council' in office_clean:
-            return 'city council'
-        elif 'mayor' in office_clean:
-            return 'mayor'
-        elif 'sheriff' in office_clean:
-            return 'sheriff'
-        elif 'clerk' in office_clean and 'court' in office_clean:
-            return 'clerk of court'
-        elif 'commonwealth' in office_clean and 'attorney' in office_clean:
-            return 'commonwealth attorney'
-        else:
-            return office_clean
     
-    def _determine_government_level(self, office_sought_normal: str, district: str) -> str:
-        """Determine the level of government based on office and district."""
-        district_str = str(district).lower().strip() if district and pd.notna(district) else ''
-        
-        # Federal level
-        if 'congressional' in district_str:
-            return 'federal'
-        
-        # State level offices
-        if office_sought_normal:
-            state_offices = {
-                'delegate', 'senator', 'governor', 'lieutenant governor', 
-                'attorney general', 'treasurer', 'secretary of the commonwealth'
-            }
-            
-            if office_sought_normal in state_offices:
-                return 'state'
-        
-        # Everything else is local
-        return 'local'
     
-    def _normalize_district(self, district: str, candidate_city: str = None, level: str = None, office_sought: str = None) -> str:
-        """Extract numerical part of district with no leading zeros."""
-        # Get normalized office for special handling
-        office_sought_normal = self._normalize_office_sought(office_sought) if office_sought else None
-        
-        # Check if office_sought contains "at large" or similar variations
-        at_large = False
-        if office_sought and not pd.isna(office_sought):
-            office_lower = str(office_sought).lower()
-            if any(term in office_lower for term in ['at large', 'at-large', 'atlarge', ' al ', ' al,', ' al.', 'at large']):
-                at_large = True
-        
-        # Check if district contains at-large variations
-        if district and not pd.isna(district):
-            district_lower = str(district).lower().strip()
-            if any(term in district_lower for term in ['at large', 'at-large', 'atlarge', ' al ', ' al,', ' al.', 'at large']):
-                at_large = True
-        
-        suffix = (' - ' + office_sought.split('-', 1)[1].strip()) if office_sought and '-' in office_sought else ''
-        
-        # Special handling for mayors - always district 0
-        if office_sought_normal == 'mayor':
-            if level == 'local' and candidate_city and not pd.isna(candidate_city):
-                return f"{candidate_city.strip()} (0)".title()
-            return "0"
-        
-        # Special handling for at-large positions - always district 0
-        if at_large:
-            if level == 'local' and candidate_city and not pd.isna(candidate_city):
-                return f"{candidate_city.strip()} (0)".title()
-            return "0"
-        
-        # Handle empty/null district
-        if pd.isna(district) or str(district).strip() == '':
-            if level == 'local' and candidate_city and not pd.isna(candidate_city):
-                # For LOCAL entries with blank district: "City Name (0)"
-                return f"{candidate_city.strip()} (0)".title()
-            elif candidate_city and not pd.isna(candidate_city):
-                return candidate_city.strip().title()
-            return None
-        
-        district_str = str(district).strip()
-        
-        # Extract numbers from the district string
-        numbers = re.findall(r'\d+', district_str)
-        
-        if numbers:
-            # Take the first number found and remove leading zeros
-            district_normal = str(int(numbers[0]))
-            # For LOCAL entries: put city name before district
-            if level == 'local' and candidate_city and not pd.isna(candidate_city):
-                district_normal = f"{candidate_city.strip()} ({district_normal})"
-                district_normal += suffix
-            return district_normal.title()
-        
-        # For entries with no numbers/letters: use 0
-        if level == 'local' and candidate_city and not pd.isna(candidate_city):
-            # Check if district has any letters or numbers
-            if not re.search(r'[a-zA-Z0-9]', district_str):
-                return f"{candidate_city.strip()} (0)".title()
-            else:
-                return f"{candidate_city.strip()} ({district_str})".title()
-        
-        return district_str.title() if district_str else None
     
-    def _determine_primary_or_general(self, election_cycle: str) -> str:
-        """Determine if election is primary or general based on election cycle."""
-        if pd.isna(election_cycle):
-            return None
-        
-        election_str = str(election_cycle).strip()
-        if election_str.startswith('11/'):
-            return 'general'
-        else:
-            return 'primary'
     
     def upload_to_bigquery(self, df: pd.DataFrame, table_id: str, dataset_id: str = 'virginia_elections') -> None:
-        """Upload DataFrame to BigQuery."""
+        """Upload DataFrame to BigQuery with optimized performance."""
         full_table_id = f"{self.project_id}.{dataset_id}.{table_id}"
-        logger.info(f"Uploading {len(df)} rows to BigQuery table: {full_table_id}")
+        total_rows = len(df)
+        logger.info(f"Uploading {total_rows} rows to BigQuery table: {full_table_id}")
         
-        # Use pandas-gbq to upload
-        pandas_gbq.to_gbq(
-            df,
-            destination_table=full_table_id,
-            project_id=self.project_id,
-            if_exists='replace',
-            progress_bar=True
-        )
+        if total_rows == 0:
+            logger.warning("No data to upload")
+            return
         
-        logger.info(f"Successfully uploaded data to {full_table_id}")
+        # Optimize DataFrame dtypes for faster upload and less memory
+        for col in df.select_dtypes(['object']).columns:
+            unique_ratio = df[col].nunique() / len(df)
+            if unique_ratio < 0.5:  # Convert to category if less than 50% unique
+                df[col] = df[col].astype('category')
+        
+        try:
+            # Use native BigQuery client for better performance
+            client = bigquery.Client(project=self.project_id)
+            
+            # Configure job for optimal performance
+            job_config = bigquery.LoadJobConfig(
+                write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+                create_disposition=bigquery.CreateDisposition.CREATE_IF_NEEDED,
+                autodetect=True,
+                max_bad_records=100
+            )
+            
+            if total_rows <= 50000:
+                # Small dataset - upload directly
+                job = client.load_table_from_dataframe(df, full_table_id, job_config=job_config)
+                job.result()
+                logger.info(f"Successfully uploaded {total_rows} rows")
+            else:
+                # Large dataset - upload in chunks for better performance
+                chunk_size = 50000
+                logger.info(f"Large dataset detected. Uploading in chunks of {chunk_size} rows...")
+                
+                # First chunk replaces the table
+                first_chunk = df.iloc[:chunk_size]
+                job = client.load_table_from_dataframe(first_chunk, full_table_id, job_config=job_config)
+                job.result()
+                logger.info(f"Uploaded chunk 1/{(total_rows-1)//chunk_size + 1}")
+                
+                # Subsequent chunks append to the table
+                job_config.write_disposition = bigquery.WriteDisposition.WRITE_APPEND
+                
+                for i in range(chunk_size, total_rows, chunk_size):
+                    chunk = df.iloc[i:i+chunk_size]
+                    chunk_num = i // chunk_size + 1
+                    job = client.load_table_from_dataframe(chunk, full_table_id, job_config=job_config)
+                    job.result()
+                    logger.info(f"Uploaded chunk {chunk_num + 1}/{(total_rows-1)//chunk_size + 1}")
+                
+                logger.info(f"Successfully uploaded all {total_rows} rows")
+        
+        except Exception as e:
+            logger.error(f"Native BigQuery upload failed: {e}")
+            # Fallback to pandas-gbq for smaller datasets
+            if total_rows < 100000:
+                logger.info("Falling back to pandas-gbq...")
+                pandas_gbq.to_gbq(
+                    df,
+                    destination_table=full_table_id,
+                    project_id=self.project_id,
+                    if_exists='replace',
+                    progress_bar=True,
+                    chunksize=10000
+                )
+                logger.info("Fallback upload successful")
+            else:
+                raise
 
 
 def main():

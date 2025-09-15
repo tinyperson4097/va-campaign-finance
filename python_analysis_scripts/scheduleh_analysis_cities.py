@@ -160,8 +160,8 @@ def main():
                        help='Google Cloud project ID')
     parser.add_argument('--dataset', type=str, default='virginia_elections',
                        help='BigQuery dataset name (default: virginia_elections)')
-    parser.add_argument('--table', type=str, default='schedule_h',
-                       help='BigQuery table name (default: schedule_h)')
+    parser.add_argument('--table', type=str, default='schedule_h_clean',
+                       help='BigQuery table name (default: schedule_h_clean)')
     parser.add_argument('--output-csv', type=str,
                        help='Path to a CSV file to save the results')
     parser.add_argument('--cities', nargs='+', 

@@ -28,32 +28,32 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json"
 ```
 2. Run the processor you want
 
-GLITCHY OPTION, does not account for all duplicates but has complete list of transactions:
 ```bash
-#Process Schedules A through E, it will upload to BigQuery under virginia elections
-python3 schedulea-e-processor.py --project-id va-campaign-finance 
+#Process Schedules ABCDFI, it will upload to BigQuery under campaign_finance in virginia_elections
+python3 ScheduleABCDFI_processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --skip-old-folders --folders-after [YEAR]
 ```
 
-BETTER OPTION, accurate but only total figures:
 ``` bash
-#Process Schedules H, it will upload to BigQuery under schedule h
+#Process Schedules H, it will upload to BigQuery under schedule_h in virginia_elections
 python3 scheduleh_processor.py --project-id va-campaign-finance 
 #Options --mode [test]|[production] --folders-after [YEAR]
-
 ```
+
+2b. Run the cleaner to clean amendments.
+```bash
+#on the Schedules ABCDFI processor
+python3 amendment_processor.py --project-id va-campaign-finance --mode clean-only
+#Options --mode [clean-only]|[full]|[local] and --raw-table [table_name] --clean-table [table_name_clean]
+```
+```bash
+python3 amendment_processor.py --project-id va-campaign-finance --mode clean-only --raw-table schedule_h --clean-table schedule_h_clean --processor-script scheduleh_processor.py
+#Options --mode [clean-only]|[full]|[local] and --raw-table [table_name] --clean-table [table_name_clean]
+```
+
+
 3. Run the analysis on local elections to get a list of candidates
 
-GLITCHY OPTION, does not account for all duplicates but has complete list of transactions:
-```bash
-#Analyze Schedules A through E production mode on remote data
-python3 schedulea-e-production_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
-```
-```bash
-#Analyze Schedules A through E test mode on local data (db file)
-python3 schedulea-e-test_test.py --project-id va-campaign-finance --output-csv ./analysis_results/local-elections-year.csv
-```
-BETTER OPTION, accurate but only total figures:
 ``` bash
 #Analyze Schedules H production mode for cities
 python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv
@@ -61,7 +61,7 @@ python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-c
 # Default is "blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"
 ```
 ``` bash
-#Analyze Schedules H prodcution mode for counties
+#Analyze Schedules H prodcution mode for counties 
 python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
 #Options: --counties [COUNTY_ONE] [COUNTY_TWO]...[COUNTY_N]
 #Default is "loudoun", "prince william"
@@ -78,6 +78,19 @@ python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_year
 python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_2018.csv --counties-csv ./analysis_results/counties_2018.csv --cities-csv-output ./analysis_results/agg_cities_2018.csv --counties-csv-output ./analysis_results/agg_counties_2018.csv
 ```
 
+3. Run the analysis on campaign finance for schedule H
+```bash
+python3 scheduleh_latest_balances.py --project-id va-campaign-finance --output-csv ./analysis_results/latest_balances_2015.csv --min-year 2015
+```
+
+```bash
+python3 scheduleh_balance_continuity_check.py --project-id va-campaign-finance --output-csv ./analysis_results/continuity_check_2015.csv --min-year 2015
+```
+
+3. Run it on unmatched_contributions
+```bash
+python3 unmatched_contributions_analysis_optimized.py --project-id va-campaign-finance --output-csv dom.csv --min-year 2015 --test-mode --dominion-only --debug
+```
 ### Option 1: Complete Setup (COMING SOON)
 
 ```bash

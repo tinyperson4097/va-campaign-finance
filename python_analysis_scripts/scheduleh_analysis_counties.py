@@ -404,8 +404,8 @@ def main():
                        help='Google Cloud project ID')
     parser.add_argument('--dataset', type=str, default='virginia_elections',
                        help='BigQuery dataset name (default: virginia_elections)')
-    parser.add_argument('--table', type=str, default='schedule_h',
-                       help='BigQuery table name (default: schedule_h)')
+    parser.add_argument('--table', type=str, default='schedule_h_clean',
+                       help='BigQuery table name (default: schedule_h_clean)')
     parser.add_argument('--counties', nargs='+', 
                        default=['loudoun', 'prince william'],
                        help='Counties to analyze (default: loudoun prince william). Available: loudoun fairfax henrico chesterfield norfolk "virginia beach" chesapeake portsmouth suffolk "newport news" hampton williamsburg roanoke lynchburg albemarle etc.')
