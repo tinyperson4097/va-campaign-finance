@@ -127,15 +127,49 @@ def normalize_name(name: str, is_individual: bool = None) -> str:
     normalized = ASSN_PATTERN.sub('ASSOC', normalized)
     normalized = VIRGINIA_PATTERN.sub('VA', normalized)
     normalized = HIGHWAY_PATTERN.sub('HWY', normalized)
+
+    # Address abbreviations
+    normalized = re.sub(r'\bSTREET\b', 'ST', normalized)
+    normalized = re.sub(r'\bROAD\b', 'RD', normalized)
+    normalized = re.sub(r'\bBOULEVARD\b', 'BLVD', normalized)
+    normalized = re.sub(r'\bAVENUE\b', 'AVE', normalized)
+    normalized = re.sub(r'\bDRIVE\b', 'DR', normalized)
+    normalized = re.sub(r'\bLANE\b', 'LN', normalized)
+    normalized = re.sub(r'\bCOURT\b', 'CT', normalized)
+    normalized = re.sub(r'\bPLACE\b', 'PL', normalized)
+
+    # Other common abbreviations
+    normalized = re.sub(r'\bACCOUNT\b', 'ACCT', normalized)
+
+    # Ordinal number normalization (10TH -> 10, 21ST -> 21, etc.)
+    normalized = re.sub(r'\b(\d+)(?:ST|ND|RD|TH)\b', r'\1', normalized)
+
+    # Political party committee normalizations
+    normalized = re.sub(r'\bREPUBLICAN PARTY COMMITTEE\b', 'REPUBLICAN', normalized)
+    normalized = re.sub(r'\bDEMOCRATIC PARTY COMMITTEE\b', 'DEMOCRATIC', normalized)
+    normalized = re.sub(r'\bGOP COMMITTEE\b', 'GOP', normalized)
+    normalized = re.sub(r'\bPOLITICAL ACTION FUND\b', '', normalized)
     
-    # For non-individuals: strip all punctuation and remove ending words PAC/INC
+    # For non-individuals: strip all punctuation and remove ending words PAC/INC/CO/CORP/LLC
     if is_individual is False:
+        # Convert & to AND before removing punctuation
+        normalized = re.sub(r'\s*&\s*', ' AND ', normalized)
+
+        # Remove .com before stripping punctuation (makes it obvious it's a website)
+        normalized = re.sub(r'\.com\b', '', normalized, flags=re.IGNORECASE)
+
         # Strip all punctuation
         normalized = re.sub(r'[^\w\s]', '', normalized)
-        
-        # Remove ending words PAC and INC
+
+        # Remove ending business designators
         normalized = re.sub(r'\bPAC$', '', normalized).strip()
         normalized = re.sub(r'\bINC$', '', normalized).strip()
+        normalized = re.sub(r'\bCO$', '', normalized).strip()
+        normalized = re.sub(r'\bCORP$', '', normalized).strip()
+        normalized = re.sub(r'\bCORPORATION$', '', normalized).strip()
+        normalized = re.sub(r'\bINCORPORATED$', '', normalized).strip()
+        normalized = re.sub(r'\bCOMPANY$', '', normalized).strip()
+        normalized = re.sub(r'\bLLC$', '', normalized).strip()
     
     # Check for exact Dominion matches using pre-defined set (O(1) lookup)
     if normalized.strip() in EXACT_DOMINION_MATCHES:
@@ -168,8 +202,8 @@ def extract_first_last_name(name: str) -> str:
     if len(parts) < 2:
         return name  # Return as-is if less than 2 parts
     
-    # Identify suffixes (JR, SR, III, IV, V)
-    suffixes = ['JR', 'SR', 'III', 'IV', 'V', 'JUNIOR', 'SENIOR']
+    # Identify suffixes (JR, SR, II, III, IV, V, etc.)
+    suffixes = ['JR', 'SR', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'JUNIOR', 'SENIOR']
     suffix_parts = []
     name_parts = []
     

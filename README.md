@@ -89,7 +89,8 @@ python3 scheduleh_balance_continuity_check.py --project-id va-campaign-finance -
 
 3. Run it on unmatched_contributions
 ```bash
-python3 unmatched_contributions_analysis_optimized.py --project-id va-campaign-finance --output-csv dom.csv --min-year 2015 --test-mode --dominion-only --debug
+python3 ./python_analysis_scripts/unmatched_contributions_analysis_optimized.py --project-id va-campaign-finance --output-csv dom.csv --min-year 2015 --committee-only "CLEAN VA FUND"
+#Options --test-mode --committee-only [COMITTEE NAME] --debug
 ```
 ### Option 1: Complete Setup (COMING SOON)
 
