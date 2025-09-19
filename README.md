@@ -26,6 +26,9 @@ see Google Colab
 ### 2. Set up your environment
 
 Set up your environment. Will need to ask for serviceaccount access.
+```bash
+conda install pandas google-cloud-bigquery rapidfuzz numpy
+```
 
 ``` bash
 
