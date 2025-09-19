@@ -19,79 +19,162 @@ A queryable database system for Virginia campaign finance data, with automated d
 
 **Secondary**: https://cfreports.elections.virginia.gov/
 
-## 🎯 Quick Start
 
-### Option 0: Just run the processors for local election data (Lazy)
-1. Set up your environment. Will need to ask for serviceaccount access.
-``` bash
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json" 
-```
-2. Run the processor you want
+## Set up
+### 1. Upload the data to GCS
+see Google Colab
+### 2. Set up your environment
 
-```bash
-#Process Schedules ABCDFI, it will upload to BigQuery under campaign_finance in virginia_elections
-python3 ScheduleABCDFI_processor.py --project-id va-campaign-finance 
-#Options --mode [test]|[production] --skip-old-folders --folders-after [YEAR]
-```
+Set up your environment. Will need to ask for serviceaccount access.
 
 ``` bash
-#Process Schedules H, it will upload to BigQuery under schedule_h in virginia_elections
-python3 scheduleh_processor.py --project-id va-campaign-finance 
-#Options --mode [test]|[production] --folders-after [YEAR]
-```
 
-2b. Run the cleaner to clean amendments.
+export  GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/key.json"
+
+```
+DOCKER??
+### 3. Process the CSV files into BigQuery (in folder `processors`)
+A. Run a processor
+* **Schedule ABCDFI Processor** (Individual Transactions): It will upload to BigQuery under in the `virginia_elections` dataset under the `campaign_finance` table
+   * **Options**: 
+     * `--mode [test]|[production]` default: test
+     * ` --skip-old-folders` skips all folders 1999-2011
+     * ` --folders-after [YEAR]` default: 2018
+
 ```bash
-#on the Schedules ABCDFI processor
-python3 amendment_processor.py --project-id va-campaign-finance --mode clean-only
-#Options --mode [clean-only]|[full]|[local] and --raw-table [table_name] --clean-table [table_name_clean]
-```
-```bash
-python3 amendment_processor.py --project-id va-campaign-finance --mode clean-only --raw-table schedule_h --clean-table schedule_h_clean --processor-script scheduleh_processor.py
-#Options --mode [clean-only]|[full]|[local] and --raw-table [table_name] --clean-table [table_name_clean]
+
+python3  ./processors/ScheduleABCDFI_processor.py  --project-id  va-campaign-finance --mode production --folders-after 2015
+
 ```
 
-
-3. Run the analysis on local elections to get a list of candidates
+* **Schedule H Processor** (Totals): It will upload to BigQuery under in the `virginia_elections` dataset under the `schedule_h` table
+   * **Options**: 
+     * `--mode [test]|[production]` default: test
+     * ` --folders-after [YEAR]` default: 2018
 
 ``` bash
-#Analyze Schedules H production mode for cities
-python3 scheduleh_analysis_cities.py --project-id va-campaign-finance --output-csv ./analysis_results/cities_year.csv
-#Options: --cities [CITY_ONE] [CITY_TWO]...[CITY_N]
-# Default is "blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"
+
+python3  ./processors/scheduleh_processor.py  --project-id  va-campaign-finance
+
+```  
+
+B. Run the amendment processor to clean it
+* **Amendment Processor** : It will upload to BigQuery under in the `virginia_elections` dataset under the `schedule_h_clean` or `cf_clean` table
+   * **Options**: 
+     * `--mode [clean-only]|[full]|` default: `clean-only`, which takes an existing table and removes duplicate amendments. `full` does the whole processing from start to finish. 
+       * `--processor-script [processor-file-name]` default: `ScheduleABCDFI_processor.py`, the script for `full`
+     * ` --raw-table [table-name]` default: `campaign_finance`, table to be cleaned
+     * `--clean-table [table-name-clean]` default: `cf_clean`,  table to put cleaned data
+
+Default Run:
+```bash
+
+python3  ./processors/amendment_processor.py  --project-id  va-campaign-finance  --mode  clean-only
+
 ```
+
+Schedule H Run:
+
+```bash
+
+python3  ./processors/amendment_processor.py  --project-id  va-campaign-finance  --mode  --clean-only  --raw-table  schedule_h  --clean-table  schedule_h_clean  --processor-script  scheduleh_processor.py
+
+```
+
+### Run analyses on the data (in folder `python_analysis_scripts`)
+
+  * **Local Elections Spending - Cities** : 
+   * **Options**: 
+     * `--cities [CITY_ONE] [CITY_TWO]...[CITY_N]` default: `["blacksburg", "leesburg", "winchester", "alexandria", "arlington", "richmond", "lynchburg", "newport news", "virginia beach", "roanoke"]`
+     *  `--output-csv` default: 
+
 ``` bash
-#Analyze Schedules H prodcution mode for counties 
-python3 scheduleh_analysis_counties.py --project-id va-campaign-finance --output-csv ./analysis_results/counties_year.csv
-#Options: --counties [COUNTY_ONE] [COUNTY_TWO]...[COUNTY_N]
-#Default is "loudoun", "prince william"
-```
-4. Use that list of candidates to aggregate local finance data (total cost, max cost, average cost, number of candidates)
 
-```bash
-#Analyze Aggregate Data for Cities & Counties
-python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_year.csv --counties-csv ./analysis_results/counties_year.csv --cities-csv-output ./analysis_results/agg_cities_year.csv --counties-csv-output ./analysis_results/agg_counties_year.csv
-```
+python3  scheduleh_analysis_cities.py  --project-id  va-campaign-finance  --output-csv  ./analysis_results/cities_year.csv
 
-```bash
-#Analyze Aggregate Data Example
-python3 aggregate-local-financing.py --cities-csv ./analysis_results/cities_2018.csv --counties-csv ./analysis_results/counties_2018.csv --cities-csv-output ./analysis_results/agg_cities_2018.csv --counties-csv-output ./analysis_results/agg_counties_2018.csv
+```
+  * **Local Elections Spending - Counties** :
+   * **Options**: 
+     * `--counties [COUNTY_ONE] [COUNTY_TWO]...[COUNTY_N]` default: `["loudoun", "prince william"]`
+     *  `--output-csv` default: 
+``` bash
+
+python3  scheduleh_analysis_counties.py  --project-id  va-campaign-finance  --output-csv  ./analysis_results/counties_year.csv
+
 ```
 
-3. Run the analysis on campaign finance for schedule H
-```bash
-python3 scheduleh_latest_balances.py --project-id va-campaign-finance --output-csv ./analysis_results/latest_balances_2015.csv --min-year 2015
-```
+  * **Local Elections Spending - Aggregate** : Use the `.csv` output from local elections spending cities and counties to aggregate local finance data and find the total cost, max cost, average cost, and number of candidates across races.
+   * **Options**: 
+     * `--cities-csv` input cities
+     *  `--counties-csv` input counties
+     * `--cities-csv-output` output cities
+     *  `--counties-csv-output` output counties
 
 ```bash
-python3 scheduleh_balance_continuity_check.py --project-id va-campaign-finance --output-csv ./analysis_results/continuity_check_2015.csv --min-year 2015
+
+python3  aggregate-local-financing.py  --cities-csv  ./analysis_results/cities_year.csv  --counties-csv  ./analysis_results/counties_year.csv  --cities-csv-output  ./analysis_results/agg_cities_year.csv  --counties-csv-output  ./analysis_results/agg_counties_year.csv
+
+```
+   * **Suspicious Ending Balances** : Pulls out all of the most recent Schedule H reports for each committee
+   * **Options**: 
+     * `--output-csv` output csv file
+     *  `--min-year` only consider reports after this year
+
+```bash
+
+python3  scheduleh_latest_balances.py  --project-id  va-campaign-finance  --output-csv  ./analysis_results/latest_balances_2015.csv  --min-year  2015
+
+```
+ * **Starting Balance Does Not Match Ending Balance** : Finds all reports where the starting balance is not equal to the previous report's ending balance(s) on line 29
+   * **Options**: 
+     * `--output-csv` output csv file
+     *  `--min-year` only consider reports after this year
+
+```bash
+
+python3  scheduleh_balance_continuity_check.py  --project-id  va-campaign-finance  --output-csv  ./analysis_results/continuity_check_2015.csv  --min-year  2015
+
+```
+ * **X Committee Reported, Candidates Did Not** : Identifies transactions where the donor committee reported it (Schedule D) but the recipient candidate did not (Schedule A)
+   * **Options**: 
+     * `--output-csv` output csv file
+     *  `--min-year` only consider reports after this year
+     * `--committee-only` only consider transactions donated by this committee
+     * `--min-amount` only considers transactions greater than this $ amount
+     * `--test-mode` stops after 100 missing transactions found
+     * `--debug` prints extensive debugging logs
+
+```bash
+
+python3  ./python_analysis_scripts/unmatched_contributions_analysis_optimized.py  --project-id  va-campaign-finance  --output-csv  committee_name.csv  --min-year  2015  --committee-only  "DOMINION ENERGY"
+
+```
+ * **Create Mapping Tables* : Creates table `commitee_mappings` with columns `[committee_code, normalized_committee_name]` to map each committee code to exactly one normalized committee
+  name and at most one candidate name and table `name_variations` with columns `[name_variation, normalized,name]` to map all name variations (from entity_name, committee_name, etc.) to their normalized versions.
+  normalized_candidate_name
+   * **Options**: 
+     * `--dry-run` preview what would be created in log
+```bash
+python3 create_mapping_tables.py --project-id va-campaign-finance --dry-run
+
+```
+ * **Test Normalization Table** : Queries the existing `name_variations` table to get all current name
+  variations and their normalized versions, applies the updated normalization function to each variation, compares current vs new normalized versions, and uploads results to BigQuery in a new table with columns:
+    - name_variation: Original variation
+    - current_normalized: Current normalization
+    - new_normalized: New normalization with your updates
+    - changed: Boolean indicating if normalization changed
+   * **Options**: 
+     * `--limit` limit to x names checked
+     * `--output-table` table name for output table
+```bash
+python test_normalization_on_table.py --project-id va-campaign-finance  --output-table my_test_results
+
 ```
 
-3. Run it on unmatched_contributions
-```bash
-python3 ./python_analysis_scripts/unmatched_contributions_analysis_optimized.py --project-id va-campaign-finance --output-csv dom.csv --min-year 2015 --committee-only "CLEAN VA FUND"
-#Options --test-mode --committee-only [COMITTEE NAME] --debug
-```
+
+## 🎯 Wishful User Interface That Does Not Exist Yet
+
 ### Option 1: Complete Setup (COMING SOON)
 
 ```bash
