@@ -30,91 +30,68 @@ logger = logging.getLogger(__name__)
 
 
 class OptimizedContributionMatcher:
-    """Optimized matcher for political contributions with caching and parallel processing."""
-    
+    """Optimized matcher using lookup tables with fuzzy fallback."""
+
     def __init__(self, fuzzy_threshold: int = 85, n_jobs: int = None):
         self.fuzzy_threshold = fuzzy_threshold
-  
         self.n_jobs = n_jobs if n_jobs else max(1, cpu_count() - 1)
-        
-        # Caching for performance
-        self.committee_name_cache = {}
+
+        # Lookup tables
+        self.name_variations = {}  # variation -> normalized_name
+        self.committee_mappings = {}  # committee_code -> {committee_name, candidate_name}
+        self.normalized_to_committee = {}  # normalized_name -> committee_info
+
+        # Legacy compatibility - keep for fallback fuzzy matching
+        self.committee_variations = {}  # For fallback if lookup tables don't have data
         self.cleaned_names_cache = {}
-        self.committee_variations = {}
-        
+
         logger.info(f"Initialized matcher with {self.n_jobs} processes, fuzzy threshold {fuzzy_threshold}")
         if RAPIDFUZZ_AVAILABLE:
             logger.info("Using rapidfuzz for 3-5x faster matching")
-    
-    def preprocess_committees(self, candidates_df: pd.DataFrame) -> None:
-        """Pre-process and cache committee name variations using normalized names from database."""
-        logger.info("Pre-processing committee names using normalized database names...")
-        
-        for _, row in candidates_df.iterrows():
-            committee_name_normalized = row.get('committee_name_normalized', '')
-            candidate_name_normalized = row.get('candidate_name_normalized', '')
+
+    def load_lookup_tables(self, client, project_id: str, dataset: str):
+        """Load name_variations and committee_mappings tables for exact lookups."""
+        logger.info("Loading lookup tables...")
+
+        # Load name_variations table
+        name_variations_query = f"""
+        SELECT name_variation, normalized_name
+        FROM `{project_id}.{dataset}.name_variations`
+        """
+        name_variations_df = client.query(name_variations_query).to_dataframe()
+        for _, row in name_variations_df.iterrows():
+            self.name_variations[row['name_variation'].lower()] = row['normalized_name']
+
+        logger.info(f"Loaded {len(self.name_variations)} name variations")
+
+        # Load committee_mappings table
+        committee_mappings_query = f"""
+        SELECT committee_code, committee_name_normalized, candidate_name_normalized
+        FROM `{project_id}.{dataset}.committee_mappings`
+        """
+        committee_mappings_df = client.query(committee_mappings_query).to_dataframe()
+
+        for _, row in committee_mappings_df.iterrows():
             committee_code = row['committee_code']
-            
-            if pd.isna(committee_name_normalized) or committee_name_normalized.strip() == '':
-                continue
-            
-            # Use normalized names directly - no additional cleaning needed
-            variations = []
-            
-            # Add normalized committee name
-            committee_clean = committee_name_normalized.strip().lower()
-            variations.append(committee_clean)
-                
-            # Add normalized candidate name if different
-            if pd.notna(candidate_name_normalized) and candidate_name_normalized.strip():
-                candidate_clean = candidate_name_normalized.strip().lower()
-                if candidate_clean != committee_clean:
-                    variations.append(candidate_clean)
-            
-            # Create shorter variations for better matching
-            # e.g., "friends of glen sturtevant for school board" -> "friends of glen sturtevant"
-            for variation in variations[:]:  # Copy list to avoid modification during iteration
-                suffixes_to_try = [
-                    ' for school board',
-                    ' for delegate', 
-                    ' for house',
-                    ' for senate',
-                    ' for governor',
-                    ' for attorney general',
-                    ' for lt governor',
-                    ' for lieutenant governor',
-                    ' for supervisor'
-                ]
-                
-                for suffix in suffixes_to_try:
-                    if variation.endswith(suffix):
-                        shorter_variation = variation[:-len(suffix)].strip()
-                        if shorter_variation and shorter_variation not in variations:
-                            variations.append(shorter_variation)
-            
-            # Store all variations
-            for variation in variations:
-                if variation and variation.strip():
-                    variation_key = variation.strip()
-                    if variation_key not in self.committee_variations:
-                        self.committee_variations[variation_key] = []
-                    
-                    # Check if this committee is already in the list (avoid duplicates)
-                    existing_codes = [c['committee_code'] for c in self.committee_variations[variation_key]]
-                    if committee_code not in existing_codes:
-                        self.committee_variations[variation_key].append(row.to_dict())
-        
-        logger.info(f"Cached {len(self.committee_variations)} committee name variations")
-        
-        # Debug: Show Glen Sturtevant variations
-        glen_variations = [k for k in self.committee_variations.keys() if 'glen' in k.lower() and 'sturtevant' in k.lower()]
-        if glen_variations:
-            logger.info(f"Glen Sturtevant variations found: {glen_variations}")
-        
-        # Debug: Show Glen Sturtevant variations
-        miyares_variations = [k for k in self.committee_variations.keys() if 'miyares' in k.lower()]
-        if miyares_variations:
-            logger.info(f"Glen Sturtevant variations found: {miyares_variations}")
+            committee_name = row['committee_name_normalized']
+            candidate_name = row.get('candidate_name_normalized', '')
+
+            # Store in committee_mappings using exact column names
+            self.committee_mappings[committee_code] = {
+                'committee_code': committee_code,
+                'committee_name_normalized': committee_name,
+                'candidate_name_normalized': candidate_name
+            }
+
+            # Create reverse lookup: normalized_name -> committee_info
+            if committee_name:
+                self.normalized_to_committee[committee_name.lower()] = self.committee_mappings[committee_code]
+            if candidate_name != 'NOT A CC':
+                self.normalized_to_committee[candidate_name.lower()] = self.committee_mappings[committee_code]
+
+        logger.info(f"Loaded {len(self.committee_mappings)} committee mappings")
+        logger.info(f"Created {len(self.normalized_to_committee)} normalized name lookups")
+
     
     def clean_committee_name(self, name: str) -> str:
         """Clean committee name with caching."""
@@ -162,12 +139,13 @@ class OptimizedContributionMatcher:
         return cleaned
     
     def find_matching_committee_batch(self, recipient_names: List[str], filing_years: List[int]) -> List[Dict]:
-        """Find matching committees for a batch of recipient names."""
-        if not self.committee_variations:
+        """Find matching committees for a batch of recipient names using lookup tables."""
+        if not self.committee_mappings and not self.name_variations:
+            logger.warning("No lookup tables loaded - returning no matches")
             return [None] * len(recipient_names)
-        
+
         results = []
-        committee_names = list(self.committee_variations.keys())
+        committee_names = list(self.normalized_to_committee.keys())
         #logger.debug(f"Committee names: '{committee_names}'")
 
         for i, recipient_name in enumerate(recipient_names):
@@ -177,63 +155,47 @@ class OptimizedContributionMatcher:
                 results.append(None)
                 continue
             
-            # Use normalized recipient name directly (no additional cleaning needed)
+            # Try exact lookup first using name_variations table
             recipient_clean = recipient_name.lower().strip() if recipient_name else ''
-            
+
             if not recipient_clean:
                 results.append(None)
                 continue
-            
-            # Find best match using rapidfuzz/fuzzywuzzy
-            if committee_names:
-                scorer = fuzz.token_sort_ratio
-                match_result = process.extractOne(recipient_clean, committee_names, scorer=scorer)
-                
-                if match_result:
-                    # Handle different return formats between rapidfuzz and fuzzywuzzy
-                    if len(match_result) == 3:
-                        # rapidfuzz format: (match, score, index)
-                        best_match, score, _ = match_result
-                    else:
-                        # fuzzywuzzy format: (match, score)
-                        best_match, score = match_result
-                    
-                    if score >= self.fuzzy_threshold:
-                        # Get all committees for the matched name variation
-                        name_matched_committees = self.committee_variations[best_match]
-                        matched_committee_info = name_matched_committees[0]  # Fallback
-                        
-                        # Get ALL committee codes for this candidate (not just this name variation)
-                        candidate_name = matched_committee_info['candidate_name']
-                        all_candidate_committees = []
-                        
-                        # Search through ALL name variations to find all committees for this candidate
-                        for committees_list in self.committee_variations.values():
-                            for committee in committees_list:
-                                if committee['candidate_name'] == candidate_name:
-                                    # Check if we already have this committee code
-                                    existing_codes = [c['committee_code'] for c in all_candidate_committees]
-                                    if committee['committee_code'] not in existing_codes:
-                                        all_candidate_committees.append(committee)
-                        
-                        #logger.debug(f"\n=== CANDIDATE COMMITTEE MATCHING ===")
-                        #logger.debug(f"Recipient name: '{recipient_clean}'")
-                        #logger.debug(f"Matched to candidate: {candidate_name}")
-                        #logger.debug(f"Filing year: {filing_year}")
-                        #logger.debug(f"Found {len(all_candidate_committees)} committee codes for this candidate:")
-                        for comm in all_candidate_committees:
-                            logger.debug(f"  - {comm['committee_code']}: {comm.get('committee_name', 'N/A')}")
-                        
-                        if len(all_candidate_committees) > 1:
-                            # Select committee code with year closest to filing year
-                            best_committee = self.select_closest_committee_by_year(all_candidate_committees, filing_year)
-                            results.append(best_committee if best_committee else matched_committee_info)
-                        else:
-                            results.append(matched_committee_info)
-                    else:
-                        results.append(None)
+
+            matched_committee = None
+
+            # Step 1: Try exact lookup in name_variations
+            if recipient_clean in self.name_variations:
+                normalized_name = self.name_variations[recipient_clean]
+                if normalized_name.lower() in self.normalized_to_committee:
+                    matched_committee = self.normalized_to_committee[normalized_name.lower()]
+                    logger.debug(f"EXACT MATCH: '{recipient_name}' -> '{normalized_name}' -> {matched_committee['committee_code']}")
+
+            # Step 2: Try direct lookup in normalized_to_committee
+            elif recipient_clean in self.normalized_to_committee:
+                matched_committee = self.normalized_to_committee[recipient_clean]
+                logger.debug(f"DIRECT MATCH: '{recipient_name}' -> {matched_committee['committee_code']}")
+
+            # No fuzzy matching - only exact lookups
+
+            if matched_committee:
+                # Find all committee codes for this candidate
+                candidate_name = matched_committee.get('candidate_name_normalized', '')
+                all_candidate_committees = []
+
+                for code, info in self.committee_mappings.items():
+                    if info.get('candidate_name_normalized') == candidate_name:
+                        all_candidate_committees.append(info)
+                #logger.debug(f"CANDIDATE: {candidate_name} has {len(all_candidate_committees)} committees")
+                #for comm in all_candidate_committees:
+                    #logger.debug(f"  - {comm['committee_code']}: {comm.get('committee_name_normalized', 'N/A')}")
+
+                if len(all_candidate_committees) > 1 :
+                    # Select committee code with year closest to filing year
+                    best_committee = self.select_closest_committee_by_year(all_candidate_committees, filing_year)
+                    results.append(best_committee if best_committee else matched_committee)
                 else:
-                    results.append(None)
+                    results.append(matched_committee)
             else:
                 results.append(None)
         
@@ -253,8 +215,8 @@ class OptimizedContributionMatcher:
         
         for committee in committees_list:
             committee_code = committee['committee_code']
-            committee_name = committee.get('committee_name', 'N/A')
-            candidate_name = committee.get('candidate_name', 'N/A')
+            committee_name = committee.get('committee_name_normalized', 'N/A')
+            candidate_name = committee.get('candidate_name_normalized', 'N/A')
             
             if pd.isna(committee_code):
                 logger.debug(f"  SKIPPED: {candidate_name} - No committee code")
@@ -278,11 +240,11 @@ class OptimizedContributionMatcher:
                     min_year_diff = year_diff
                     best_committee = committee
                     logger.debug(f"    -> NEW BEST MATCH (diff: {year_diff})")
-            else:
-                logger.debug(f"  SKIPPED: {committee_code} - Invalid format")
+            #else:
+                #logger.debug(f"  SKIPPED: {committee_code} - Invalid format")
         
         if best_committee:
-            logger.debug(f"SELECTED: {best_committee['committee_code']} ({best_committee.get('candidate_name', 'N/A')}) - {min_year_diff} year difference")
+            logger.debug(f"SELECTED: {best_committee['committee_code']} ({best_committee.get('candidate_name_normalized', 'N/A')}) - {min_year_diff} year difference")
         else:
             logger.debug("NO COMMITTEE SELECTED")
         
@@ -305,9 +267,10 @@ class OptimizedContributionMatcher:
                 results.append((False, {}))
                 continue
             
+
             if schedule_a_subset.empty:
                 # Debug: Let's see what committee codes DO exist for this candidate
-                candidate_name = matched_committee['candidate_name']
+                candidate_name = matched_committee['candidate_name_normalized']
                 # Search for any Schedule A receipts with similar candidate names
                 all_schedule_a = batch_data[0][2]  # Get the full schedule_a_df from first item
                 similar_candidate_receipts = []
@@ -329,13 +292,12 @@ class OptimizedContributionMatcher:
                 results.append((False, {
                     'reason': 'no_schedule_a_receipts', 
                     'committee_code': matched_committee['committee_code'],
-                    'candidate_name': candidate_name,
+                    'candidate_name_normalized': candidate_name,
                     'available_committee_codes_for_candidate': available_codes[:5],  # Limit to 5
-                    'matched_committee_name': matched_committee.get('committee_name', 'N/A')
+                    'matched_committee_name': matched_committee.get('committee_name_normalized', 'N/A')
                 }))
                 continue
             
-            #donor_clean = self.clean_committee_name(donor_name)
             best_match_info = {
                 'best_score': 0,
                 'best_candidate': None,
@@ -364,8 +326,11 @@ class OptimizedContributionMatcher:
                 if pd.isna(donor_normalized) or donor_normalized == '':
                     donor_normalized = self.clean_committee_name(donor_name)
                     
-                name_score = fuzz.token_sort_ratio(donor_normalized, receipt_donor_normalized)
-                
+                # Use exact match only (no fuzzy matching)
+                name_match = (donor_normalized.lower() == receipt_donor_normalized.lower())
+                name_score = 100 if name_match else 0
+
+               
                 # Track best match regardless of other criteria
                 if name_score > best_match_info['best_score']:
                     best_match_info['best_score'] = name_score
@@ -390,9 +355,7 @@ class OptimizedContributionMatcher:
                     date_match = True
                     if pd.notna(a_date) and pd.notna(d_date):
                         date_match = ((a_date - d_date).days <= 60) and ((a_date - d_date).days >= -30)
-                        if 'suhas' in str(matched_committee.get('candidate_name', '')).lower():          
-                            logger.debug(f"Date comparison: Schedule A {a_date} vs Schedule D {d_date}, diff={(a_date - d_date).days} days, committee={matched_committee['committee_code']}")
-
+                       
                         if date_match:
                             best_match_info['date_matches'] += 1
                     elif pd.isna(a_date) or pd.isna(d_date):
@@ -406,43 +369,17 @@ class OptimizedContributionMatcher:
                     if date_match:
                         date_amount_match = True
 
-                        if name_score >= self.fuzzy_threshold:
+                        if name_match:  # Exact match required
+                            # Debug logging for McClellan specifically
+                            if 'mcclellan' in str(matched_committee.get('candidate_name_normalized', '')).lower():
+                                logger.info(f"🔍 McCLELLAN FULL MATCH: donor='{donor_normalized}', amount=${amount}, date={transaction_date}, committee={matched_committee['committee_code']}")
                             found_match = True
                             break
-                        '''else:
-                             logger.debug(f"2/3 CRITERIA: amount={amount_match}, date={date_match}")
-                            logger.debug(f"  Amount check: ${amount} vs ${a_row['amount']} = {amount_match}")
-                            logger.debug(f"  Date check: {transaction_date.date() if pd.notna(transaction_date) else 'N/A'} vs {a_date.date() if pd.notna(a_date) else 'N/A'} = {date_match}")
-                            logger.debug(f"  Name: '{donor_normalized}' vs '{receipt_donor_normalized}' = {name_score}")
-                    elif name_score >= self.fuzzy_threshold:
-                        logger.debug(f"2/3 CRITERIA: amount={amount_match}, name_score={name_score}")
-                        logger.debug(f"  Amount check: ${amount} vs ${a_row['amount']} = {amount_match}")
-                        logger.debug(f"  Date check: {transaction_date.date() if pd.notna(transaction_date) else 'N/A'} vs {a_date.date() if pd.notna(a_date) else 'N/A'} = {date_match}")
-                        logger.debug(f"  Name: '{donor_normalized}' vs '{receipt_donor_normalized}' = {name_score}")
-                elif name_score >= self.fuzzy_threshold and date_match:
-                    logger.debug(f"2/3 CRITERIA: date={date_match}, name_score={name_score}")
-                    logger.debug(f"  Amount check: ${amount} vs ${a_row['amount']} = {amount_match}")
-                    logger.debug(f"  Date check: {transaction_date.date() if pd.notna(transaction_date) else 'N/A'} vs {a_date.date() if pd.notna(a_date) else 'N/A'} = {date_match}")
-                    logger.debug(f"  Name: '{donor_normalized}' vs '{receipt_donor_normalized}' = {name_score}")'''
-                # Debug logging for what should be matches but aren't
-                #if amount_match and date_match and name_score >= self.fuzzy_threshold - 5:  # Very close misses
-                   # logger.debug(f"NEAR MATCH FAILED: amount={amount_match}, date={date_match}, name_score={name_score} (threshold={self.fuzzy_threshold})")
-                    #logger.debug(f"  Amount check: ${amount} vs ${a_row['amount']} = {amount_match}")
-                   # logger.debug(f"  Date check: {transaction_date.date() if pd.notna(transaction_date) else 'N/A'} vs {a_date.date() if pd.notna(a_date) else 'N/A'} = {date_match}")
-                   # logger.debug(f"  Name: '{donor_normalized}' vs '{receipt_donor_normalized}' = {name_score}")
-
-                '''if((a_date - transaction_date).days <= 60) and ((a_date - transaction_date).days >= -30) and amount_match and name_score >= self.fuzzy_threshold:
-                    logger.debug(f"NEAR MATCH FAILED: amount={amount_match}, date={date_match}")
-                    logger.debug(f"  Date check: {transaction_date.date() if pd.notna(transaction_date) else 'N/A'} vs {a_date.date() if pd.notna(a_date) else 'N/A'} = {date_match}")
-                    logger.debug(f"  Name: '{donor_normalized}' vs '{receipt_donor_normalized}' = {name_score}")
-            
-                if date_amount_match:  # Very close misses
-                    logger.debug(f"NEAR MATCH FAILED: amount={amount_match}, date={date_match}")
-                    logger.debug(f"  Amount check: ${amount} vs ${a_row['amount']} = {amount_match}")
-                    logger.debug(f"  Date check: {transaction_date.date() if pd.notna(transaction_date) else 'N/A'} vs {a_date.date() if pd.notna(a_date) else 'N/A'} = {date_match}")
-                    logger.debug(f"  Name: '{donor_normalized}' vs '{receipt_donor_normalized}' = {name_score}")'''
             
             if found_match:
+                # Log all McClellan matches, not just the exact name+amount+date ones
+                if 'mcclellan' in str(matched_committee.get('candidate_name_normalized', '')).lower():
+                    logger.info(f"✅ McCLELLAN MATCH FOUND: Committee {matched_committee['committee_code']}")
                 results.append((True, {}))
             else:
                 # No match found - determine likely reasons
@@ -492,26 +429,15 @@ def get_unmatched_contributions_optimized(project_id: str,
             if committee_only.upper() == "DOMINION ENERGY":
                 committee_filter = """
                 AND (
-                    LOWER(committee_name) LIKE '%dominion%'
-                    OR LOWER(committee_name) LIKE '%dominion energy%'
-                    OR LOWER(committee_name) LIKE '%dominion resources%'
-                    OR LOWER(committee_name) LIKE '%dominion virginia power%'
-                    OR LOWER(committee_name) LIKE '%virginia electric%'
-                    OR LOWER(committee_name) LIKE '%vepco%'
+                    UPPER(committee_name_normalized) LIKE '%DOMINION ENERGY%'
                 )
                 """
-            elif committee_only.upper() == "CLEAN VA FUND":
-                committee_filter = """
-                AND (
-                    LOWER(committee_name) LIKE '%clean va%'
-                    OR LOWER(committee_name) LIKE '%clean virginia%'
-                )
-                """
+            
             else:
                 # Generic filter for any committee name
                 committee_name_escaped = committee_only.replace("'", "''")
                 committee_filter = f"""
-                AND LOWER(committee_name) LIKE LOWER('%{committee_name_escaped}%')
+                AND committee_name_normalized LIKE UPPER('%{committee_name_escaped}%')
                 """
         
         # Step 1: Get Schedule D expenses with stricter filtering
@@ -522,7 +448,7 @@ def get_unmatched_contributions_optimized(project_id: str,
             committee_name as donor_committee_name,
             committee_name_normalized as donor_committee_name_normalized,
             committee_type as donor_committee_type,
-            candidate_name as donor_candidate_name,
+            candidate_name_normalized as donor_candidate_name,
             entity_name as recipient_name,
             entity_name_normalized as recipient_name_normalized,
             amount,
@@ -534,7 +460,7 @@ def get_unmatched_contributions_optimized(project_id: str,
             report_date
         FROM `{project_id}.{dataset_id}.{table_id}`
         WHERE 1=1
-            AND schedule_type = 'ScheduleD'
+            AND transaction_type = 'ScheduleD'
             AND report_year >= @min_year
             AND committee_type IN (
                 'Political Action Committee',
@@ -547,14 +473,15 @@ def get_unmatched_contributions_optimized(project_id: str,
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\bcontribution\\s+(to|for)\\b')
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\bpac\\s+contribution\\b')
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\b(primary|general)\\s+\\d{{4}}\\b')
-                OR REGEXP_CONTAINS(LOWER(purpose), r'\\bin-kind\\s+(campaign\\s+)?contribution\\b')
+                -- OR REGEXP_CONTAINS(LOWER(purpose), r'\\bin-kind\\s+(campaign\\s+)?contribution\\b')
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\bfundraiser\\b')
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\bstate\\s+committee\\s+contribution\\b')
+                OR REGEXP_CONTAINS(LOWER(purpose), r'\\bcontribution\\b')
             )
             AND amount >= @min_amount  -- Only consider contributions $1,000 and above
             AND entity_name IS NOT NULL
             AND entity_name != ''
-            AND LENGTH(entity_name) > 5  -- Filter out very short names
+            AND LENGTH(entity_name) > 1  -- Filter out very short names
             {committee_filter}
         ORDER BY amount DESC, transaction_date DESC
         """
@@ -582,6 +509,7 @@ def get_unmatched_contributions_optimized(project_id: str,
             committee_name as recipient_committee_name,
             committee_name_normalized as recipient_committee_name_normalized,
             candidate_name as recipient_candidate_name,
+            candidate_name_normalized as recipient_candidate_name_normalized,
             entity_name as donor_name,
             entity_name_normalized as donor_name_normalized,
             amount,
@@ -591,7 +519,7 @@ def get_unmatched_contributions_optimized(project_id: str,
             folder_name
         FROM `{project_id}.{dataset_id}.{table_id}`
         WHERE 1=1
-            AND schedule_type = 'ScheduleA'
+            AND transaction_type = 'ScheduleA'
             AND report_year >= @min_year
             AND committee_type = 'Candidate Campaign Committee'
             AND amount >= @min_amount  -- Match the Schedule D filter
@@ -623,9 +551,18 @@ def get_unmatched_contributions_optimized(project_id: str,
         logger.info(f"Found {len(schedule_d_df)} filtered Schedule D contributions")
         logger.info(f"Found {len(candidates_df)} candidate campaign committees")
         logger.info(f"Found {len(schedule_a_df)} filtered Schedule A receipts")
+
+        # Log McClellan Schedule D transactions found after committee filtering
+        mcclellan_schedule_d = schedule_d_df[schedule_d_df['recipient_name_normalized'].str.contains('mcclellan', case=False, na=False)]
+        if not mcclellan_schedule_d.empty:
+            logger.info(f"🔍 Found {len(mcclellan_schedule_d)} Schedule D transactions TO McClellan (after committee filtering):")
+            for _, row in mcclellan_schedule_d.iterrows():
+                logger.info(f"  - FROM: '{row['donor_committee_name']}' (normalized: '{row.get('donor_committee_name_normalized', 'N/A')}'), Amount: ${row['amount']}, Date: {row['transaction_date']}, Recipient: '{row['recipient_name']}'")
+        else:
+            logger.info("🔍 No Schedule D transactions TO McClellan found after committee filtering")
         
-        # Pre-process committees for faster matching
-        matcher.preprocess_committees(candidates_df)
+        # Load lookup tables for exact matching
+        matcher.load_lookup_tables(client, project_id, dataset_id)
         
         # Process in batches for better memory management
         unmatched_contributions = []
@@ -647,16 +584,21 @@ def get_unmatched_contributions_optimized(project_id: str,
             
             logger.info(f"Processing batch {batch_idx + 1}/{total_batches}")
             
-            # Step 1: Find matching committees for batch
-            # Use normalized recipient names if available, fallback to original names
-            recipient_names = [
-                row.get('recipient_name_normalized', row['recipient_name']) if pd.notna(row.get('recipient_name_normalized', '')) 
-                else row['recipient_name']
-                for _, row in batch_df.iterrows()
-            ]
+            # Step 1: Find matching committees for batch using lookup tables
+            recipient_names = []
+            for _, row in batch_df.iterrows():
+                normalized_name = row.get('recipient_name_normalized', '')
+                if pd.notna(normalized_name) and normalized_name.strip():
+                    recipient_names.append(normalized_name.strip())
+                else:
+                    # Fallback to original name but log warning
+                    original_name = row.get('recipient_name', '')
+                    logger.warning(f"Using fallback for recipient without normalized name: '{original_name}'")
+                    recipient_names.append(original_name)
+
             filing_years = [
-                row['report_year'] if pd.notna(row['report_year']) 
-                else pd.to_datetime(row['transaction_date']).year if pd.notna(row['transaction_date']) 
+                row['report_year'] if pd.notna(row['report_year'])
+                else pd.to_datetime(row['transaction_date']).year if pd.notna(row['transaction_date'])
                 else 2020
                 for _, row in batch_df.iterrows()
             ]
@@ -684,16 +626,57 @@ def get_unmatched_contributions_optimized(project_id: str,
             if batch_data:
                 match_results = matcher.find_matching_schedule_a_batch(batch_data)
                 
-                # Collect unmatched contributions
+                # Process all results and try alternate committees
                 for i, (has_match, match_info) in enumerate(match_results):
-                    if not has_match:
-                        original_idx = valid_indices[i]
-                        d_row_dict, matched_committee, _ = batch_data[i]
-                        
+                    original_idx = valid_indices[i]
+                    d_row_dict, matched_committee, original_schedule_a_subset = batch_data[i]
+
+                    # Only try alternate committee codes if this is a candidate (has candidate_name) and it's not blank
+                    found_alternate_match = False
+                    candidate_name = matched_committee.get('candidate_name_normalized', '')
+                    original_committee_code = matched_committee['committee_code']
+
+                    # Only check alternates for actual candidates (not PACs or other non-candidate committees)
+                    if candidate_name and candidate_name.strip() and candidate_name != 'NOT A CC':
+                        # Find all committee codes for this candidate using committee_mappings
+                        all_candidate_committees = []
+                        for code, info in matcher.committee_mappings.items():
+                            if info.get('candidate_name_normalized') == candidate_name:
+                                all_candidate_committees.append(info)
+
+                        logger.debug(f"Checking alternate committees for {candidate_name} (original: {original_committee_code}, has_match: {has_match})")
+                        logger.debug(f"Found {len(all_candidate_committees)} total committees for this candidate")
+
+                        # Try each alternate committee code
+                        for alt_committee in all_candidate_committees:
+                            alt_code = alt_committee['committee_code']
+                            if alt_code != original_committee_code:  # Don't retry the same code
+                                alt_schedule_a = schedule_a_df[
+                                    schedule_a_df['recipient_committee_code'] == alt_code
+                                ]
+                                logger.debug(f"  Alternate committee {alt_code}: {len(alt_schedule_a)} Schedule A records")
+
+                                if not alt_schedule_a.empty:
+                                    logger.debug(f"Trying alternate committee {alt_code} for {candidate_name} (original: {original_committee_code})")
+
+                                    # Try matching with this alternate committee
+                                    alt_batch_data = [(d_row_dict, alt_committee, alt_schedule_a)]
+                                    alt_match_results = matcher.find_matching_schedule_a_batch(alt_batch_data)
+
+                                    if alt_match_results and alt_match_results[0][0]:  # has_match is True
+                                        logger.info(f"✅ ALTERNATE COMMITTEE MATCH: Found match using {alt_code} instead of {original_committee_code} for {candidate_name}")
+                                        found_alternate_match = True
+                                        break
+                    else:
+                        logger.debug(f"Skipping alternate committee check - blank candidate name for committee {original_committee_code}")
+
+                    # Only add to unmatched if no match was found (original or alternate)
+                    if not has_match and not found_alternate_match:
+
                         # Log debugging info for unmatched contributions
                         logger.debug(f"\n=== UNMATCHED CONTRIBUTION ===")
                         logger.debug(f"Donor: {d_row_dict['donor_committee_name']}")
-                        logger.debug(f"Recipient: {d_row_dict['recipient_name']} -> {matched_committee['candidate_name']}")
+                        logger.debug(f"Recipient: {d_row_dict['recipient_name']} -> {matched_committee['candidate_name_normalized']}")
                         logger.debug(f"Amount: ${d_row_dict['amount']}")
                         logger.debug(f"Date: {d_row_dict['transaction_date']}")
                         logger.debug(f"Purpose: {d_row_dict['purpose']}")
@@ -705,7 +688,7 @@ def get_unmatched_contributions_optimized(project_id: str,
                                     logger.debug(f"Committee code: {match_info['committee_code']}")
                                     logger.debug(f"Committee name: {match_info.get('matched_committee_name', 'N/A')}")
                                 if 'available_committee_codes_for_candidate' in match_info:
-                                    logger.debug(f"Available codes for {match_info.get('candidate_name', 'N/A')}: {match_info['available_committee_codes_for_candidate']}")
+                                    logger.debug(f"Available codes for {match_info.get('candidate_name_normalized', 'N/A')}: {match_info['available_committee_codes_for_candidate']}")
                             else:
                                 logger.debug(f"Schedule A candidates checked: {match_info['total_candidates']}")
                                 logger.debug(f"Amount matches found: {match_info['amount_matches']}")
@@ -722,7 +705,7 @@ def get_unmatched_contributions_optimized(project_id: str,
                         contribution_record = d_row_dict.copy()
                         contribution_record['matched_committee_code'] = matched_committee['committee_code']
                         contribution_record['matched_committee_name_normalized'] = matched_committee['committee_name_normalized']
-                        contribution_record['matched_candidate_name'] = matched_committee['candidate_name']
+                        contribution_record['matched_candidate_name'] = matched_committee['candidate_name_normalized']
                         
                         # Add failure reason to output
                         if match_info and 'reason' in match_info:

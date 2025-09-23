@@ -84,7 +84,7 @@ python3  ./processors/amendment_processor.py  --project-id  va-campaign-finance 
 
 ```
 
-### Run analyses on the data (in folder `python_analysis_scripts`)
+### 4. Run analyses on the data (in folder `python_analysis_scripts`)
 
   * **Local Elections Spending - Cities** : 
    * **Options**: 
@@ -152,7 +152,7 @@ python3  scheduleh_balance_continuity_check.py  --project-id  va-campaign-financ
 python3  ./python_analysis_scripts/unmatched_contributions_analysis_optimized.py  --project-id  va-campaign-finance  --output-csv  committee_name.csv  --min-year  2015  --committee-only  "DOMINION ENERGY"
 
 ```
- * **Create Mapping Tables* : Creates table `commitee_mappings` with columns `[committee_code, normalized_committee_name]` to map each committee code to exactly one normalized committee
+ * **Create Mapping Tables** : Creates table `commitee_mappings` with columns `[committee_code, normalized_committee_name]` to map each committee code to exactly one normalized committee
   name and at most one candidate name and table `name_variations` with columns `[name_variation, normalized,name]` to map all name variations (from entity_name, committee_name, etc.) to their normalized versions.
   normalized_candidate_name
    * **Options**: 
