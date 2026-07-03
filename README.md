@@ -191,6 +191,77 @@ The normalization rules are maintained as hard-coded patterns refined over month
 - `schedule_type`: Schedule A, B, C, D, F, I
 - `report_year`: Election year
 
+## Gold Layer & App
+
+- **Gold layer**: `sql/*.sql` (dims/facts/marts/data-quality tables), run in order by
+  `sql/run_gold.py --project-id <PROJECT>` into dataset `virginia_elections_gold`. See
+  `sql/README.md`.
+- **App**: `app.py` (search bar + SQL editor) and `pages/Documentation.py` (live
+  schema/pipeline reference, generated from BigQuery's own schema and the `sql/` files
+  so it can't drift). Run locally with `streamlit run app.py`.
+
+### Local setup
+```bash
+export VA_CF_PROJECT_ID='your-gcp-project-id'
+gcloud auth application-default login   # run once, yourself -- not via any agent
+streamlit run app.py
+```
+No key file, no `secrets.toml`, nothing credential-shaped touches this repo for local use.
+
+### Deploying (public app, private key)
+
+The app is meant to be public — anyone can search/query — while the BigQuery key that
+makes that possible stays private. That split works because Streamlit Community Cloud
+has its own Secrets store (separate from this repo, in your browser talking to their
+servers) that the app reads at runtime.
+
+1. **Create a read-only service account scoped to just the gold dataset** (run these
+   yourself):
+   ```bash
+   gcloud iam service-accounts create va-cf-readonly \
+     --display-name="VA Campaign Finance read-only (Streamlit app)" \
+     --project=YOUR_PROJECT_ID
+
+   # Data Viewer on the gold dataset ONLY -- not the whole project, not silver.
+   bq add-iam-policy-binding \
+     --member="serviceAccount:va-cf-readonly@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/bigquery.dataViewer" \
+     YOUR_PROJECT_ID:virginia_elections_gold
+
+   # Lets it run query jobs (compute), not a data-access grant by itself.
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:va-cf-readonly@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/bigquery.jobUser"
+
+   gcloud iam service-accounts keys create va-cf-readonly-key.json \
+     --iam-account=va-cf-readonly@YOUR_PROJECT_ID.iam.gserviceaccount.com
+   ```
+   (If your `bq` CLI is too old for dataset-level `add-iam-policy-binding`, use the
+   BigQuery console instead: dataset -> Sharing -> Permissions -> Add principal.)
+
+2. Push this repo to GitHub, connect it at [share.streamlit.io](https://share.streamlit.io).
+
+3. In that app's **Settings -> Secrets**, paste (see `.streamlit/secrets.toml.example`
+   for the exact shape):
+   ```toml
+   project_id = "YOUR_PROJECT_ID"
+   gold_dataset = "virginia_elections_gold"
+   last_updated = "2026-07-01"
+
+   [gcp_service_account]
+   # every field from va-cf-readonly-key.json, same names
+   ```
+
+The key never becomes a file in this repo or on your machine beyond that one download
+(delete `va-cf-readonly-key.json` locally once it's pasted in). Visitors to the deployed
+app never see it and never need their own GCP account -- every query they run executes
+server-side under this one scoped, read-only identity.
+
+One residual thing to know: the app's own per-query caps (dry-run scan limit, billing
+cap, row limit, timeout — see `app.py`) bound the cost of any single query, but there's
+no aggregate daily/monthly spend cap. If you want a hard ceiling on total cost, set a
+budget alert (or a custom quota) on `YOUR_PROJECT_ID` in the GCP Console.
+
 ## Known Issues
 
 See `PLAN.md` section 2 for detailed tech debt inventory. High-priority items:

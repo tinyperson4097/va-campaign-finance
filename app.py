@@ -5,13 +5,19 @@ Virginia Campaign Finance — search bar that doubles as a SQL editor over the
 """
 
 import concurrent.futures
-import os
 
 import pandas as pd
 import streamlit as st
-from google.auth.exceptions import DefaultCredentialsError
 from google.cloud import bigquery
-from google.oauth2 import service_account
+
+from bq_client import (
+    AUTH_HELP,
+    GOLD_DATASET,
+    LAST_UPDATED,
+    DefaultCredentialsError,
+    get_bigquery_client,
+    require_project_id,
+)
 
 st.set_page_config(page_title="VA Campaign Finance", layout="wide")
 
@@ -20,20 +26,6 @@ MAX_BYTES_BILLED = 1_000_000_000  # hard billing cap per query
 ROW_LIMIT = 1000
 QUERY_TIMEOUT_SECONDS = 30
 FORBIDDEN_KEYWORDS = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "MERGE", "TRUNCATE", "GRANT"]
-
-
-def get_secret(key: str, default=None):
-    try:
-        return st.secrets.get(key, default)
-    except Exception:
-        return default
-
-
-# project_id/gold_dataset aren't sensitive -- env vars are the primary way to set
-# them (secrets.toml works too, but isn't required just to run this locally).
-PROJECT_ID = os.environ.get("VA_CF_PROJECT_ID") or get_secret("project_id")
-GOLD_DATASET = os.environ.get("VA_CF_GOLD_DATASET") or get_secret("gold_dataset", "virginia_elections_gold")
-LAST_UPDATED = os.environ.get("VA_CF_LAST_UPDATED") or get_secret("last_updated", "unknown")
 
 SAMPLE_QUERIES = {
     "Top Dominion Energy recipients": f"""SELECT candidate_name_normalized, committee_name_normalized, SUM(total_amount) AS total
@@ -55,20 +47,6 @@ FROM `{GOLD_DATASET}.balance_continuity_failures`
 ORDER BY ABS(balance_discrepancy) DESC
 LIMIT 50""",
 }
-
-
-@st.cache_resource
-def get_bigquery_client() -> bigquery.Client:
-    # Only present when Streamlit Community Cloud injects it from that app's own
-    # Secrets dashboard (share.streamlit.io) -- never a file in this repo. Locally
-    # this secret won't exist, so we fall back to Application Default Credentials:
-    # run `gcloud auth application-default login` yourself once, and the client
-    # picks it up with no key material touching this project at all.
-    creds_info = get_secret("gcp_service_account")
-    if creds_info:
-        credentials = service_account.Credentials.from_service_account_info(creds_info)
-        return bigquery.Client(project=PROJECT_ID, credentials=credentials)
-    return bigquery.Client(project=PROJECT_ID)
 
 
 def is_safe_select(sql: str) -> tuple[bool, str]:
@@ -143,23 +121,10 @@ def show_table(df: pd.DataFrame, key: str):
     )
 
 
-AUTH_HELP = (
-    "BigQuery auth failed. Locally: run `gcloud auth application-default login` "
-    "once. Deployed: add a `[gcp_service_account]` block in this app's Secrets "
-    "settings on share.streamlit.io (never in a file in this repo)."
-)
-
-
 def main():
     st.title("Virginia Campaign Finance")
     st.caption(f"Data last updated: {LAST_UPDATED}")
-
-    if not PROJECT_ID:
-        st.warning(
-            "Set the `VA_CF_PROJECT_ID` environment variable (or `project_id` in "
-            "`.streamlit/secrets.toml`) to your GCP project id."
-        )
-        st.stop()
+    require_project_id()
 
     with st.sidebar:
         st.header("Sample queries")
