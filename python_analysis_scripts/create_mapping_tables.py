@@ -96,7 +96,7 @@ def create_committee_mappings(df: pd.DataFrame) -> pd.DataFrame:
     if not duplicates.empty:
         logger.warning(f"Found {len(duplicates)} potential conflicts in committee mappings")
         for _, row in duplicates.iterrows():
-            logger.warning(f"  Conflict: {row['committee_code']} -> {row['normalized_committee_name']}")
+            logger.warning(f"  Conflict: {row['committee_code']} -> {row['committee_name_normalized']}")
 
     return mappings_df
 

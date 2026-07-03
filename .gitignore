@@ -3,3 +3,6 @@ __pycache__/
 node_modules/
 old_tests/
 analysis_results/
+committee_name.csv
+committee_name_alternate_matches.csv
+dom.csv

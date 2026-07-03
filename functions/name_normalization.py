@@ -181,6 +181,10 @@ def normalize_name(name: str, is_individual: bool = None) -> str:
     # Check for exact Clean Virginia matches using pre-defined set (O(1) lookup)
     elif normalized.strip() in EXACT_CLEAN_VA_MATCHES:
         normalized = 'CLEAN VA FUND'
+
+    # Hard-coded candidate name normalization for specific cases
+    if normalized == 'CAT PORTERFIELD':
+        normalized = 'CATHY PORTERFIELD'
     
     # Final cleanup
     normalized = SPACES_PATTERN.sub(' ', normalized).strip()

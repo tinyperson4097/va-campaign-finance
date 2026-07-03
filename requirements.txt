@@ -1,0 +1,9 @@
+pandas
+google-cloud-bigquery
+google-cloud-storage
+pandas-gbq
+rapidfuzz
+streamlit
+numpy
+requests
+beautifulsoup4

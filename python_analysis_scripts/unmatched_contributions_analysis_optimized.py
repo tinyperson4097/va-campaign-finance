@@ -37,32 +37,19 @@ class OptimizedContributionMatcher:
         self.n_jobs = n_jobs if n_jobs else max(1, cpu_count() - 1)
 
         # Lookup tables
-        self.name_variations = {}  # variation -> normalized_name
-        self.committee_mappings = {}  # committee_code -> {committee_name, candidate_name}
-        self.normalized_to_committee = {}  # normalized_name -> committee_info
+        self.committee_mappings = {}  # committee_name_normalized -> {committee_code, candidate_name_normalized}
 
-        # Legacy compatibility - keep for fallback fuzzy matching
-        self.committee_variations = {}  # For fallback if lookup tables don't have data
+        # Cache for committee name cleaning
         self.cleaned_names_cache = {}
+
 
         logger.info(f"Initialized matcher with {self.n_jobs} processes, fuzzy threshold {fuzzy_threshold}")
         if RAPIDFUZZ_AVAILABLE:
             logger.info("Using rapidfuzz for 3-5x faster matching")
 
     def load_lookup_tables(self, client, project_id: str, dataset: str):
-        """Load name_variations and committee_mappings tables for exact lookups."""
-        logger.info("Loading lookup tables...")
-
-        # Load name_variations table
-        name_variations_query = f"""
-        SELECT name_variation, normalized_name
-        FROM `{project_id}.{dataset}.name_variations`
-        """
-        name_variations_df = client.query(name_variations_query).to_dataframe()
-        for _, row in name_variations_df.iterrows():
-            self.name_variations[row['name_variation'].lower()] = row['normalized_name']
-
-        logger.info(f"Loaded {len(self.name_variations)} name variations")
+        """Load committee_mappings table for exact lookups."""
+        logger.info("Loading committee_mappings lookup table...")
 
         # Load committee_mappings table
         committee_mappings_query = f"""
@@ -76,21 +63,14 @@ class OptimizedContributionMatcher:
             committee_name = row['committee_name_normalized']
             candidate_name = row.get('candidate_name_normalized', '')
 
-            # Store in committee_mappings using exact column names
-            self.committee_mappings[committee_code] = {
-                'committee_code': committee_code,
-                'committee_name_normalized': committee_name,
-                'candidate_name_normalized': candidate_name
-            }
-
-            # Create reverse lookup: normalized_name -> committee_info
+            # Store as committee_name_normalized -> {committee_code, candidate_name_normalized}
             if committee_name:
-                self.normalized_to_committee[committee_name.lower()] = self.committee_mappings[committee_code]
-            if candidate_name != 'NOT A CC':
-                self.normalized_to_committee[candidate_name.lower()] = self.committee_mappings[committee_code]
+                self.committee_mappings[committee_name] = {
+                    'committee_code': committee_code,
+                    'candidate_name_normalized': candidate_name
+                }
 
         logger.info(f"Loaded {len(self.committee_mappings)} committee mappings")
-        logger.info(f"Created {len(self.normalized_to_committee)} normalized name lookups")
 
     
     def clean_committee_name(self, name: str) -> str:
@@ -139,24 +119,22 @@ class OptimizedContributionMatcher:
         return cleaned
     
     def find_matching_committee_batch(self, recipient_names: List[str], filing_years: List[int]) -> List[Dict]:
-        """Find matching committees for a batch of recipient names using lookup tables."""
-        if not self.committee_mappings and not self.name_variations:
-            logger.warning("No lookup tables loaded - returning no matches")
+        """Find matching committees for a batch of recipient names using committee_mappings lookup table."""
+        if not self.committee_mappings:
+            logger.warning("No committee_mappings loaded - returning no matches")
             return [None] * len(recipient_names)
 
         results = []
-        committee_names = list(self.normalized_to_committee.keys())
-        #logger.debug(f"Committee names: '{committee_names}'")
 
         for i, recipient_name in enumerate(recipient_names):
             filing_year = filing_years[i] if i < len(filing_years) else 2020
-            
+
             if not recipient_name or recipient_name.strip() == '':
                 results.append(None)
                 continue
-            
-            # Try exact lookup first using name_variations table
-            recipient_clean = recipient_name.lower().strip() if recipient_name else ''
+
+            # Try exact lookup in committee_mappings
+            recipient_clean = recipient_name.strip() if recipient_name else ''
 
             if not recipient_clean:
                 results.append(None)
@@ -164,41 +142,43 @@ class OptimizedContributionMatcher:
 
             matched_committee = None
 
-            # Step 1: Try exact lookup in name_variations
-            if recipient_clean in self.name_variations:
-                normalized_name = self.name_variations[recipient_clean]
-                if normalized_name.lower() in self.normalized_to_committee:
-                    matched_committee = self.normalized_to_committee[normalized_name.lower()]
-                    logger.debug(f"EXACT MATCH: '{recipient_name}' -> '{normalized_name}' -> {matched_committee['committee_code']}")
+            # Direct lookup in committee_mappings (committee_name_normalized -> committee_code, candidate_name_normalized)
+            if recipient_clean in self.committee_mappings:
+                committee_info = self.committee_mappings[recipient_clean]
+                matched_committee = {
+                    'committee_code': committee_info['committee_code'],
+                    'committee_name_normalized': recipient_clean,
+                    'candidate_name_normalized': committee_info['candidate_name_normalized']
+                }
 
-            # Step 2: Try direct lookup in normalized_to_committee
-            elif recipient_clean in self.normalized_to_committee:
-                matched_committee = self.normalized_to_committee[recipient_clean]
                 logger.debug(f"DIRECT MATCH: '{recipient_name}' -> {matched_committee['committee_code']}")
 
-            # No fuzzy matching - only exact lookups
-
             if matched_committee:
-                # Find all committee codes for this candidate
                 candidate_name = matched_committee.get('candidate_name_normalized', '')
-                all_candidate_committees = []
 
-                for code, info in self.committee_mappings.items():
-                    if info.get('candidate_name_normalized') == candidate_name:
-                        all_candidate_committees.append(info)
-                #logger.debug(f"CANDIDATE: {candidate_name} has {len(all_candidate_committees)} committees")
-                #for comm in all_candidate_committees:
-                    #logger.debug(f"  - {comm['committee_code']}: {comm.get('committee_name_normalized', 'N/A')}")
+                if candidate_name != 'NOT A CC':
+                    # For candidate committees: Find all committee codes for this candidate
+                    all_candidate_committees = []
+                    for norm_name, info in self.committee_mappings.items():
+                        if info.get('candidate_name_normalized') == candidate_name:
+                            all_candidate_committees.append({
+                                'committee_code': info['committee_code'],
+                                'committee_name_normalized': norm_name,
+                                'candidate_name_normalized': info['candidate_name_normalized']
+                            })
 
-                if len(all_candidate_committees) > 1 :
-                    # Select committee code with year closest to filing year
-                    best_committee = self.select_closest_committee_by_year(all_candidate_committees, filing_year)
-                    results.append(best_committee if best_committee else matched_committee)
+                    if len(all_candidate_committees) > 1:
+                        # Select committee code with year closest to filing year
+                        best_committee = self.select_closest_committee_by_year(all_candidate_committees, filing_year)
+                        results.append(best_committee if best_committee else matched_committee)
+                    else:
+                        results.append(matched_committee)
                 else:
+                    # For non-CCs: Use the matched committee as-is
                     results.append(matched_committee)
             else:
                 results.append(None)
-        
+
         return results
     
     def select_closest_committee_by_year(self, committees_list: List[Dict], filing_year: int) -> Dict:
@@ -258,17 +238,18 @@ class OptimizedContributionMatcher:
             if not matched_committee:
                 results.append((False, {}))
                 continue
-            
+
             donor_name = d_row_dict['donor_committee_name']
             amount = d_row_dict['amount']
             transaction_date = pd.to_datetime(d_row_dict['transaction_date'])
-            
+
             if pd.isna(donor_name) or donor_name.strip() == '':
                 results.append((False, {}))
                 continue
             
 
             if schedule_a_subset.empty:
+
                 # Debug: Let's see what committee codes DO exist for this candidate
                 candidate_name = matched_committee['candidate_name_normalized']
                 # Search for any Schedule A receipts with similar candidate names
@@ -327,10 +308,10 @@ class OptimizedContributionMatcher:
                     donor_normalized = self.clean_committee_name(donor_name)
                     
                 # Use exact match only (no fuzzy matching)
-                name_match = (donor_normalized.lower() == receipt_donor_normalized.lower())
+                name_match = (donor_normalized == receipt_donor_normalized)
                 name_score = 100 if name_match else 0
 
-               
+
                 # Track best match regardless of other criteria
                 if name_score > best_match_info['best_score']:
                     best_match_info['best_score'] = name_score
@@ -370,16 +351,10 @@ class OptimizedContributionMatcher:
                         date_amount_match = True
 
                         if name_match:  # Exact match required
-                            # Debug logging for McClellan specifically
-                            if 'mcclellan' in str(matched_committee.get('candidate_name_normalized', '')).lower():
-                                logger.info(f"🔍 McCLELLAN FULL MATCH: donor='{donor_normalized}', amount=${amount}, date={transaction_date}, committee={matched_committee['committee_code']}")
                             found_match = True
                             break
             
             if found_match:
-                # Log all McClellan matches, not just the exact name+amount+date ones
-                if 'mcclellan' in str(matched_committee.get('candidate_name_normalized', '')).lower():
-                    logger.info(f"✅ McCLELLAN MATCH FOUND: Committee {matched_committee['committee_code']}")
                 results.append((True, {}))
             else:
                 # No match found - determine likely reasons
@@ -397,13 +372,15 @@ class OptimizedContributionMatcher:
                     reasons.append("no date + amount match combo")
                     
                 best_match_info['reasons'] = reasons
+
+
                 results.append((False, best_match_info))
         
         return results
 
 
-def get_unmatched_contributions_optimized(project_id: str, 
-                                        dataset_id: str, 
+def get_unmatched_contributions_optimized(project_id: str,
+                                        dataset_id: str,
                                         table_id: str,
                                         min_year: int = 2018,
                                         fuzzy_threshold: int = 85,
@@ -420,6 +397,7 @@ def get_unmatched_contributions_optimized(project_id: str,
     # Initialize BigQuery client
     client = bigquery.Client(project=project_id)
     matcher = OptimizedContributionMatcher(fuzzy_threshold, n_jobs)
+
     
     try:
         # Build committee filter if requested
@@ -552,22 +530,13 @@ def get_unmatched_contributions_optimized(project_id: str,
         logger.info(f"Found {len(candidates_df)} candidate campaign committees")
         logger.info(f"Found {len(schedule_a_df)} filtered Schedule A receipts")
 
-        # Log McClellan Schedule D transactions found after committee filtering
-        mcclellan_schedule_d = schedule_d_df[schedule_d_df['recipient_name_normalized'].str.contains('mcclellan', case=False, na=False)]
-        if not mcclellan_schedule_d.empty:
-            logger.info(f"🔍 Found {len(mcclellan_schedule_d)} Schedule D transactions TO McClellan (after committee filtering):")
-            for _, row in mcclellan_schedule_d.iterrows():
-                logger.info(f"  - FROM: '{row['donor_committee_name']}' (normalized: '{row.get('donor_committee_name_normalized', 'N/A')}'), Amount: ${row['amount']}, Date: {row['transaction_date']}, Recipient: '{row['recipient_name']}'")
-        else:
-            logger.info("🔍 No Schedule D transactions TO McClellan found after committee filtering")
-        
         # Load lookup tables for exact matching
         matcher.load_lookup_tables(client, project_id, dataset_id)
-        
+
         # Process in batches for better memory management
         unmatched_contributions = []
         total_batches = len(schedule_d_df) // batch_size + (1 if len(schedule_d_df) % batch_size else 0)
-        
+
         logger.info(f"Processing {len(schedule_d_df)} records in {total_batches} batches of {batch_size}")
         if test_mode:
             logger.info("Test mode: Will stop after finding 100 unmatched contributions")
@@ -586,6 +555,7 @@ def get_unmatched_contributions_optimized(project_id: str,
             
             # Step 1: Find matching committees for batch using lookup tables
             recipient_names = []
+
             for _, row in batch_df.iterrows():
                 normalized_name = row.get('recipient_name_normalized', '')
                 if pd.notna(normalized_name) and normalized_name.strip():
@@ -603,7 +573,7 @@ def get_unmatched_contributions_optimized(project_id: str,
                 for _, row in batch_df.iterrows()
             ]
             matched_committees = matcher.find_matching_committee_batch(recipient_names, filing_years)
-            
+
             # Step 2: Prepare data for Schedule A matching
             batch_data = []
             valid_indices = []
@@ -618,10 +588,10 @@ def get_unmatched_contributions_optimized(project_id: str,
                 schedule_a_subset = schedule_a_df[
                     schedule_a_df['recipient_committee_code'] == committee_code
                 ]
-                
+
                 batch_data.append((d_row.to_dict(), matched_committee, schedule_a_subset))
                 valid_indices.append(idx)
-            
+
             # Step 3: Find matching Schedule A receipts
             if batch_data:
                 match_results = matcher.find_matching_schedule_a_batch(batch_data)
@@ -633,6 +603,7 @@ def get_unmatched_contributions_optimized(project_id: str,
 
                     # Only try alternate committee codes if this is a candidate (has candidate_name) and it's not blank
                     found_alternate_match = False
+                    alternate_match_failure_reason = None
                     candidate_name = matched_committee.get('candidate_name_normalized', '')
                     original_committee_code = matched_committee['committee_code']
 
@@ -640,12 +611,13 @@ def get_unmatched_contributions_optimized(project_id: str,
                     if candidate_name and candidate_name.strip() and candidate_name != 'NOT A CC':
                         # Find all committee codes for this candidate using committee_mappings
                         all_candidate_committees = []
-                        for code, info in matcher.committee_mappings.items():
+                        for norm_name, info in matcher.committee_mappings.items():
                             if info.get('candidate_name_normalized') == candidate_name:
-                                all_candidate_committees.append(info)
-
-                        logger.debug(f"Checking alternate committees for {candidate_name} (original: {original_committee_code}, has_match: {has_match})")
-                        logger.debug(f"Found {len(all_candidate_committees)} total committees for this candidate")
+                                all_candidate_committees.append({
+                                    'committee_code': info['committee_code'],
+                                    'committee_name_normalized': norm_name,
+                                    'candidate_name_normalized': info['candidate_name_normalized']
+                                })
 
                         # Try each alternate committee code
                         for alt_committee in all_candidate_committees:
@@ -654,21 +626,19 @@ def get_unmatched_contributions_optimized(project_id: str,
                                 alt_schedule_a = schedule_a_df[
                                     schedule_a_df['recipient_committee_code'] == alt_code
                                 ]
-                                logger.debug(f"  Alternate committee {alt_code}: {len(alt_schedule_a)} Schedule A records")
 
                                 if not alt_schedule_a.empty:
-                                    logger.debug(f"Trying alternate committee {alt_code} for {candidate_name} (original: {original_committee_code})")
-
                                     # Try matching with this alternate committee
                                     alt_batch_data = [(d_row_dict, alt_committee, alt_schedule_a)]
                                     alt_match_results = matcher.find_matching_schedule_a_batch(alt_batch_data)
 
                                     if alt_match_results and alt_match_results[0][0]:  # has_match is True
-                                        logger.info(f"✅ ALTERNATE COMMITTEE MATCH: Found match using {alt_code} instead of {original_committee_code} for {candidate_name}")
                                         found_alternate_match = True
                                         break
-                    else:
-                        logger.debug(f"Skipping alternate committee check - blank candidate name for committee {original_committee_code}")
+                                    else:
+                                        # Store the failure reason from the alternate committee attempt
+                                        if alt_match_results and len(alt_match_results) > 0:
+                                            alternate_match_failure_reason = alt_match_results[0][1]
 
                     # Only add to unmatched if no match was found (original or alternate)
                     if not has_match and not found_alternate_match:
@@ -706,17 +676,19 @@ def get_unmatched_contributions_optimized(project_id: str,
                         contribution_record['matched_committee_code'] = matched_committee['committee_code']
                         contribution_record['matched_committee_name_normalized'] = matched_committee['committee_name_normalized']
                         contribution_record['matched_candidate_name'] = matched_committee['candidate_name_normalized']
-                        
-                        # Add failure reason to output
-                        if match_info and 'reason' in match_info:
-                            contribution_record['failure_reason'] = match_info['reason']
-                            if 'available_committee_codes_for_candidate' in match_info:
-                                contribution_record['available_committee_codes'] = '; '.join(match_info['available_committee_codes_for_candidate'])
-                        elif match_info and 'reasons' in match_info:
-                            contribution_record['failure_reason'] = '; '.join(match_info['reasons']) if match_info['reasons'] else 'no_match_found'
-                            if match_info.get('best_score', 0) > 0:
-                                contribution_record['best_name_match_score'] = match_info['best_score']
-                                contribution_record['best_name_match_candidate'] = match_info.get('best_candidate', '')
+
+                        # Add failure reason to output - prefer alternate committee failure reason if available
+                        failure_info = alternate_match_failure_reason if alternate_match_failure_reason else match_info
+
+                        if failure_info and 'reason' in failure_info:
+                            contribution_record['failure_reason'] = failure_info['reason']
+                            if 'available_committee_codes_for_candidate' in failure_info:
+                                contribution_record['available_committee_codes'] = '; '.join(failure_info['available_committee_codes_for_candidate'])
+                        elif failure_info and 'reasons' in failure_info:
+                            contribution_record['failure_reason'] = '; '.join(failure_info['reasons']) if failure_info['reasons'] else 'no_match_found'
+                            if failure_info.get('best_score', 0) > 0:
+                                contribution_record['best_name_match_score'] = failure_info['best_score']
+                                contribution_record['best_name_match_candidate'] = failure_info.get('best_candidate', '')
                         else:
                             contribution_record['failure_reason'] = 'unknown'
                         
@@ -728,7 +700,7 @@ def get_unmatched_contributions_optimized(project_id: str,
         
         logger.info(f"Found {len(unmatched_contributions)} unmatched contributions")
         return unmatched_contributions
-        
+
     except Exception as e:
         logger.error(f"Error in optimized analysis: {e}")
         return []
@@ -812,7 +784,7 @@ def main():
                        help='Enable debug logging to see matching details')
     parser.add_argument('--min-amount', type=int, default=1000,
                        help='Amount minimum flagged (default: 1000)')
-    
+
     args = parser.parse_args()
     
     # Set logging level based on debug flag
@@ -836,15 +808,15 @@ def main():
             committee_only=args.committee_only,
             min_amount=args.min_amount
         )
-        
+
         # Convert to DataFrame
         df = pd.DataFrame(results) if results else pd.DataFrame()
-        
+
         # Save to CSV
         df.to_csv(args.output_csv, index=False)
-        
+
         elapsed_time = datetime.now() - start_time
-        
+
         if results:
             logger.info(f"Successfully saved {len(results)} unmatched contributions to {args.output_csv}")
         else:
