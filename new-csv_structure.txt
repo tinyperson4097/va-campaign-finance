@@ -1,0 +1,29 @@
+File: Report.csv
+Columns: ['ReportId', 'CommitteeCode', 'CommitteeName', 'CommitteeType', 'CandidateName', 'IsStateWide', 'IsGeneralAssembly', 'IsLocal', 'Party', 'FecNumber', 'ReportYear', 'FilingDate', 'StartDate', 'EndDate', 'AddressLine1', 'AddressLine2', 'AddressLine3', 'City', 'StateCode', 'ZipCode', 'FilingType', 'IsFinalReport', 'IsAmendment', 'AmendmentCount', 'SubmitterPhone', 'SubmitterEmail', 'ElectionCycle', 'ElectionCycleStartDate', 'ElectionCycleEndDate', 'OfficeSought', 'District', 'NoActivity', 'BalanceLastReportingPeriod', 'DateOfReferendum', 'SubmittedDate', 'AccountId', 'DueDate', 'IsXmlUpload', 'ReportUID']
+---------------
+File: ScheduleA.csv
+Columns: ['ReportId', 'CommitteeContactId', 'FirstName', 'MiddleName', 'LastOrCompanyName', 'Prefix', 'Suffix', 'NameOfEmployer', 'OccupationOrTypeOfBusiness', 'PrimaryCityAndStateOfEmploymentOrBusiness', 'AddressLine1', 'AddressLine2', 'City', 'StateCode', 'ZipCode', 'IsIndividual', 'TransactionDate', 'Amount', 'TotalToDate', 'ScheduleAId', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleB.csv
+Columns: ['ReportId', 'CommitteeContactId', 'FirstName', 'MiddleName', 'LastOrCompanyName', 'Prefix', 'Suffix', 'NameOfEmployer', 'OccupationOrTypeOfBusiness', 'PrimaryCityAndStateOfEmploymentOrBusiness', 'AddressLine1', 'AddressLine2', 'City', 'StateCode', 'ZipCode', 'IsIndividual', 'TransactionDate', 'Amount', 'TotalToDate', 'ScheduleBId', 'ValuationBasis', 'ProductOrService', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleC.csv
+Columns: ['ReportId', 'CommitteeContactId', 'FirstName', 'MiddleName', 'LastOrCompanyName', 'Prefix', 'Suffix', 'AddressLine1', 'AddressLine2', 'City', 'StateCode', 'ZipCode', 'IsIndividual', 'TransactionDate', 'Amount', 'ScheduleCId', 'ReceiptType', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleG.csv
+Columns: ['ScheduleGId', 'ReportId', 'ScheduleACount', 'ScheduleATotal', 'ScheduleBCount', 'ScheduleBTotal', 'UnItemizedCount', 'UnItemizedTotal', 'UnItemizedInKindCount', 'UnItemizedInKindTotal', 'AllContributionsCount', 'AllContributionsTotal', 'ScheduleCTotal', 'ScheduleBTotalAgain', 'UnItemizedInKindTotalAgain', 'ScheduleDTotal', 'TotalInKindAndExpenditures', 'BeginningLoanBalance', 'LoansReceivedTotal', 'LoansReceivedAndExistingTotal', 'LoansPaidTotal', 'NewLoanBalance', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleF.csv
+Columns: ['ScheduleFId', 'ReportId', 'CommitteeContactId', 'FirstName', 'MiddleName', 'LastOrCompanyName', 'Prefix', 'Suffix', 'AddressLine1', 'AddressLine2', 'City', 'StateCode', 'ZipCode', 'IsIndividual', 'TransactionDate', 'Amount', 'PurposeOfObligation', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleD.csv
+Columns: ['ScheduleDId', 'ReportId', 'CommitteeContactId', 'FirstName', 'MiddleName', 'LastOrCompanyName', 'Prefix', 'Suffix', 'AddressLine1', 'AddressLine2', 'City', 'StateCode', 'ZipCode', 'IsIndividual', 'TransactionDate', 'Amount', 'AuthorizingName', 'ItemOrService', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleE.csv
+Columns: ['ReportId', 'TransactionDate', 'Amount', 'ScheduleEId', 'LenderCommitteeContactId', 'LenderFirstName', 'LenderMiddleName', 'LenderLastOrCompanyName', 'LenderPrefix', 'LenderSuffix', 'LenderAddressLine1', 'LenderAddressLine2', 'LenderCity', 'LenderState', 'LenderZipCode', 'LenderIsIndividual', 'CoBorrowerCommitteeContactId', 'CoBorrowerFirstName', 'CoBorrowerMiddleName', 'CoBorrowerLastOrCompanyName', 'CoBorrowerPrefix', 'CoBorrowerSuffix', 'CoBorrowerAddressLine1', 'CoBorrowerAddressLine2', 'CoBorrowerCity', 'CoBorrowerState', 'CoBorrowerZipCode', 'CoBorrowerIsIndividual', 'TransactionType', 'LoanBalance', 'ScheduleId', 'ReportUID']
+---------------
+File: ScheduleH.csv
+Columns: ['ScheduleHId', 'ReportId', 'BeginningBalance', 'ContributionsReceived', 'ScheduleCTotal', 'LoansReceivedTotal', 'ContributionsAndReceiptsReceived', 'TotalExpendableFunds', 'TotalInKindAndExpenditures', 'LoansPaidTotal', 'ScheduleITotal', 'TotalPaymentsMade', 'ExpendableFundsBalance', 'TotalUnPaidDebts', 'BalanceAtStartOfElectionCycle', 'PreviousReceipts', 'CurrentReceipts', 'TotalReceiptsThisElectionCycle', 'TotalFundsAvailable', 'PreviousDisbursements', 'CurrentDisbursements', 'TotalDisbursements', 'EndingBalance', 'ScheduleId', 'ReportUID']
+---------------
+Error reading ScheduleI.csv: 'utf-8' codec can't decode byte 0xa7 in position 1318: invalid start byte
+---------------

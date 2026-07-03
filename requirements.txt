@@ -1,6 +1,7 @@
 pandas
 google-cloud-bigquery
 google-cloud-storage
+google-auth
 pandas-gbq
 rapidfuzz
 streamlit

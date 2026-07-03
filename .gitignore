@@ -6,3 +6,4 @@ analysis_results/
 committee_name.csv
 committee_name_alternate_matches.csv
 dom.csv
+.streamlit/secrets.toml

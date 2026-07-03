@@ -145,7 +145,18 @@ NON-CC blocks) that needs stripping before landing. Also an additive normalizati
       (`ROW_NUMBER()`), keeping identical output columns so downstream scripts don't change.
 - [ ] Keep `test_normalization_on_table.py` as the gatekeeper for any new rule.
 
-### Phase 3 — Gold layer (SQL transforms in a new `sql/` dir + small runner)
+### Phase 3 — Gold layer (SQL transforms in a new `sql/` dir + small runner) — done, unverified
+Implemented as `sql/00_setup` (shared `parse_va_date` UDF) through `sql/04_data_quality`,
+run in order by `sql/run_gold.py --project-id <PROJECT>`. Written and syntax-checked
+(`sqlglot`, dialect `bigquery`) but **not run against live BigQuery** — no `bq`/`gcloud`
+auth on this machine (see item 6 below). Two notes for whoever runs it first:
+- `fact_transaction` / `unmatched_contributions` assume `cf_clean` stores `transaction_date`
+  as the same raw string format as the raw `campaign_finance` table (handled by the new
+  `parse_va_date` UDF) — confirm this against the actual BigQuery schema.
+- `local_election_costs` only covers cities/towns (`district_normal`); the counties
+  rollup from the legacy `aggregate-local-financing.py` needs a `mapped_county` column
+  that isn't produced anywhere in this codebase, so it was left out rather than guessed.
+
 Tables in dataset `virginia_elections_gold`:
 - **Dims:** `dim_committee` (code, normalized name, type, party, candidate, active years),
   `dim_candidate` (person-level rollup), `dim_entity` (donors/vendors), `dim_report`
@@ -160,7 +171,13 @@ Tables in dataset `virginia_elections_gold`:
   have): balance-continuity failures, suspicious ending balances, and the unmatched
   Schedule D ↔ Schedule A contributions from `unmatched_contributions_analysis_optimized.py`.
 
-### Phase 4 — The Streamlit MVP (the product)
+### Phase 4 — The Streamlit MVP (the product) — built, not yet deployed
+Implemented as `app.py` (single file, ~200 lines) plus `.streamlit/secrets.toml.example`
+documenting the expected secrets shape. Verified: syntax-checks clean, boots under
+`streamlit run` with no exceptions and serves the no-credentials warning path (no GCP
+creds on this machine to test the actual BigQuery queries or sample queries against real
+data — do that before deploying). Not yet pushed to Streamlit Community Cloud.
+
 One app, deliberately minimal, deployed free on Streamlit Community Cloud:
 - **One input box** that accepts either:
   - plain text → treated as a search over `dim_candidate` / `dim_committee` / `dim_entity`
