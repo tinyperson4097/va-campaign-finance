@@ -37,3 +37,24 @@ entity,CLEAN VA FUND (PAC),CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in fun
 entity,CLEAN VA FUND PAC,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
 entity,CLEAN VA PAC,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
 candidate,CAT PORTERFIELD,CATHY PORTERFIELD,hardcoded,inline rule in normalize_name()
+entity,Virginia House Democratic Caucus,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: Entity name exists; 2156 records; 45+ overlapping committees with ""House Democratic Caucus"" variant confirm same entity"
+entity,Laborers Mid-Atlantic Regional Organizing Coalitio,LABORERS MIDATLANTIC REGIONAL ORGANIZING COALITION,agent,"agent-proposed, critic-approved: Database truncation (COALITIO=COALITION); 173 records found"
+entity,Virginia League of Conservation Voters PAC,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,VA House Democratic Caucus,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: 165 records; same entity as ""Virginia House Democratic Caucus"""
+entity,VIRGINIA HOUSE DEMOCRATIC CAUCUS,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: 513 records; uppercase variant of same entity"
+entity,Virginia League of Conservation Voters,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,Virginia House Democratic Caucas,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: 16 records; typo variant (CAUCAS) of Virginia House Democratic Caucus"
+entity,The Spirit Of Virginia,SPIRIT OF VA,agent,"agent-proposed, critic-approved: 4 records; common prefix removal, reasonable normalization"
+entity,Virginia League Of Conservation Voters,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,VA League of Conservation Voters,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,The Spirit of Virginia,SPIRIT OF VA,agent,"agent-proposed, critic-approved: 1 record; same entity as ""The Spirit Of Virginia"""
+entity,Virginia League Of Conservation Voters PAC,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,Virginia League of Conservation Voters Political Action Committee,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,Virginia League OF Conservation Voters PAC,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,VA League Of Conservation Voters,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,Va House Democratic Caucus,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: 3 records; mixed case variant"
+entity,Virginia House  Democratic Caucus,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: 3 records; extra space variant"
+entity,Virginia house Democratic caucus,HOUSE DEMOCRATIC CAUCUS,agent,"agent-proposed, critic-approved: 1 record; lowercase variant"
+entity,VIRGINIA LEAGUE OF CONSERVATION VOTERS POLITICAL ACTION COMMITTEE,VA LEAGUE OF CONSERVATION VOTERS,agent,agent-proposed; retargeted from national LEAGUE OF CONSERVATION VOTERS to the VA state PAC (PAC-12-00361) -- national org is a separate entity
+entity,Edward Hart Rice,EDWARD RICE,agent,"agent-proposed, critic-approved: Hart is middle name; 8 overlapping committees with Edward Rice; same occupation (consultant); likely same person"
+entity,Edward H Rice,EDWARD RICE,agent,"agent-proposed, critic-approved: Middle initial variant of Edward Hart Rice"
