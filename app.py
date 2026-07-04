@@ -5,6 +5,7 @@ Virginia Campaign Finance — search bar that doubles as a SQL editor over the
 """
 
 import concurrent.futures
+import re
 
 import pandas as pd
 import streamlit as st
@@ -56,7 +57,9 @@ def is_safe_select(sql: str) -> tuple[bool, str]:
     stripped = statements[0].strip().upper()
     if not stripped.startswith(("SELECT", "WITH")):
         return False, "Only SELECT queries are allowed."
-    padded = f" {stripped} "
+    # Collapse all whitespace (newlines, tabs) to single spaces so a keyword
+    # split across lines can't slip past the space-delimited check below.
+    padded = " " + re.sub(r"\s+", " ", stripped) + " "
     if any(f" {kw} " in padded for kw in FORBIDDEN_KEYWORDS):
         return False, "Only read-only SELECT queries are allowed."
     return True, ""

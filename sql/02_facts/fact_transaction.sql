@@ -10,6 +10,22 @@
 -- (itemized / in-kind / other), D/F/I are disbursements (itemized / debts &
 -- obligations / in-kind).
 --
+-- Dedup uses RANK() (not ROW_NUMBER) so all rows tied at the highest
+-- amendment_count survive: two genuinely identical transactions (same donor,
+-- same amount, same month) are BOTH real money and must both be kept, exactly
+-- as the pandas amendment processor keeps every row at the max amendment.
+--
+-- is_suspected_test_record flags rows that look like the test/QA records the
+-- SBE leaves in its published feed (e.g. entity "Tammy Tester" at
+-- "123 Find Street", "Kim Tester" with address literally "test", candidate
+-- "Mr Tester Mc Tester" for Governor -- all observed in real SBE files).
+-- Flagged, not dropped, so they're auditable; the marts exclude them, and
+-- suspected_test_records (04_data_quality) publishes the full flagged list.
+-- CAUTION: real people exist with TESTER-adjacent names (JD Testerman,
+-- Pamela Tester Wilson) -- the regexes use word boundaries so TESTERMAN
+-- doesn't match, but review the published list for false positives (a real
+-- surname "Tester", like US Sen. Jon Tester's, would be flagged).
+--
 -- Depends on `{{gold_dataset}}.parse_va_date` (sql/00_setup/udf_parse_date.sql).
 CREATE OR REPLACE TABLE `{{project_id}}.{{gold_dataset}}.fact_transaction` AS
 WITH cleaned AS (
@@ -25,7 +41,7 @@ WITH cleaned AS (
 ranked AS (
   SELECT
     *,
-    ROW_NUMBER() OVER (
+    RANK() OVER (
       PARTITION BY
         committee_code,
         name_normalized_for_dedup,
@@ -40,7 +56,7 @@ ranked AS (
         COALESCE(primary_or_general, ''),
         COALESCE(office_sought_normal, ''),
         COALESCE(district_normal, '')
-      ORDER BY amendment_count_clean DESC, due_date DESC, report_date DESC
+      ORDER BY amendment_count_clean DESC
     ) AS amendment_rank
   FROM cleaned
 )
@@ -91,6 +107,13 @@ SELECT
   amendment_count,
   data_source,
   folder_name,
-  onTime
+  onTime,
+  (
+    REGEXP_CONTAINS(COALESCE(entity_name_normalized, ''), r'\b(TESTER|TESTY)\b')
+    OR REGEXP_CONTAINS(COALESCE(candidate_name_normalized, ''), r'\b(TESTER|TESTY)\b')
+    OR REGEXP_CONTAINS(COALESCE(committee_name_normalized, ''), r'\b(TESTER|TESTY)\b')
+    OR LOWER(TRIM(COALESCE(entity_address, ''))) = 'test'
+    OR LOWER(TRIM(COALESCE(entity_city, ''))) = 'test'
+  ) AS is_suspected_test_record
 FROM ranked
 WHERE amendment_rank = 1;

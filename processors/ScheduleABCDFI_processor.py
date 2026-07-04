@@ -720,7 +720,7 @@ class VirginiaDataProcessor:
             'report_id': pd.to_numeric(row.get('Committee Code') or row.get('COMMITTEE_CODE'), errors='coerce'),
             'committee_code': row.get('Committee Code') or row.get('COMMITTEE_CODE'),
             'committee_name': row.get('Committee Name') or row.get('COMMITTEE_NAME'),
-            'committee_name_normalized': normalize_name(row.get('Committee Name'), is_individual=False),
+            'committee_name_normalized': normalize_name(row.get('Committee Name') or row.get('COMMITTEE_NAME'), is_individual=False),
             'candidate_name': candidate_name,
             'candidate_name_normalized': normalize_name(candidate_name, is_individual=True),
             'report_year': pd.to_numeric(row.get('Report Year') or row.get('REPORT_YEAR') or folder_name, errors='coerce'),

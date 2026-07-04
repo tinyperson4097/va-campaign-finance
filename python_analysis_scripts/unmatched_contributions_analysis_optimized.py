@@ -1,28 +1,31 @@
 #!/usr/bin/env python3
 """
-Optimized Unmatched Contributions Analysis
-Identifies Schedule D expenses that are political contributions to candidate committees
-but have no matching Schedule A receipt record - with performance optimizations
+Unmatched Contributions Analysis — "Committee Reported, Candidate Did Not"
+
+Identifies transactions where the donor committee reported it (Schedule D)
+but the recipient did not (Schedule A). Recipients that map to a candidate
+campaign committee are matched against receipts under any of that candidate's
+committee codes; non-candidate recipients (matched_candidate_name =
+'NOT A CC') are matched against their one mapped committee code -- PACs and
+other non-candidate committees file Schedule A too, so both kinds can match,
+and the output shows which kind each unmatched row is.
+
+Options:
+  --output-csv      output csv file
+  --min-year        only consider reports after this year
+  --committee-only  only consider transactions donated by this committee
+  --min-amount      only considers transactions greater than this $ amount
+  --test-mode       stops after 100 missing transactions found
+  --debug           prints extensive debugging logs
 """
 
 import pandas as pd
 import argparse
 import logging
 from google.cloud import bigquery
-from typing import List, Dict, Any, Tuple, Optional
-from datetime import datetime, timedelta
+from typing import List, Dict, Any, Tuple
+from datetime import datetime
 import re
-from multiprocessing import Pool, cpu_count
-from functools import partial
-import numpy as np
-
-try:
-    from rapidfuzz import fuzz, process
-    RAPIDFUZZ_AVAILABLE = True
-except ImportError:
-    from fuzzywuzzy import fuzz, process
-    RAPIDFUZZ_AVAILABLE = False
-    logging.warning("rapidfuzz not available, falling back to fuzzywuzzy (slower)")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,22 +33,14 @@ logger = logging.getLogger(__name__)
 
 
 class OptimizedContributionMatcher:
-    """Optimized matcher using lookup tables with fuzzy fallback."""
+    """Exact matcher keyed on the committee_mappings lookup table."""
 
-    def __init__(self, fuzzy_threshold: int = 85, n_jobs: int = None):
-        self.fuzzy_threshold = fuzzy_threshold
-        self.n_jobs = n_jobs if n_jobs else max(1, cpu_count() - 1)
-
+    def __init__(self):
         # Lookup tables
         self.committee_mappings = {}  # committee_name_normalized -> {committee_code, candidate_name_normalized}
 
         # Cache for committee name cleaning
         self.cleaned_names_cache = {}
-
-
-        logger.info(f"Initialized matcher with {self.n_jobs} processes, fuzzy threshold {fuzzy_threshold}")
-        if RAPIDFUZZ_AVAILABLE:
-            logger.info("Using rapidfuzz for 3-5x faster matching")
 
     def load_lookup_tables(self, client, project_id: str, dataset: str):
         """Load committee_mappings table for exact lookups."""
@@ -174,7 +169,12 @@ class OptimizedContributionMatcher:
                     else:
                         results.append(matched_committee)
                 else:
-                    # For non-CCs: Use the matched committee as-is
+                    # Non-CC recipient (matched_candidate_name = 'NOT A CC'):
+                    # kept in the analysis so the output shows whether each
+                    # unmatched row's recipient is a candidate committee or
+                    # not. Matched as-is against its one mapped committee
+                    # code -- the Schedule A pool covers all committee types
+                    # (PACs etc. file Schedule A too), so a match is real.
                     results.append(matched_committee)
             else:
                 results.append(None)
@@ -249,32 +249,10 @@ class OptimizedContributionMatcher:
             
 
             if schedule_a_subset.empty:
-
-                # Debug: Let's see what committee codes DO exist for this candidate
-                candidate_name = matched_committee['candidate_name_normalized']
-                # Search for any Schedule A receipts with similar candidate names
-                all_schedule_a = batch_data[0][2]  # Get the full schedule_a_df from first item
-                similar_candidate_receipts = []
-                for _, receipt in all_schedule_a.iterrows():
-                    receipt_candidate = str(receipt.get('recipient_candidate_name', ''))
-                    if candidate_name and receipt_candidate:
-                        # Check if first or last names match
-                        candidate_parts = candidate_name.lower().split()
-                        receipt_parts = receipt_candidate.lower().split()
-                        if len(candidate_parts) >= 2 and len(receipt_parts) >= 2:
-                            if (candidate_parts[0] in receipt_parts or candidate_parts[-1] in receipt_parts):
-                                similar_candidate_receipts.append({
-                                    'committee_code': receipt['recipient_committee_code'],
-                                    'candidate_name': receipt_candidate
-                                })
-                
-                available_codes = list(set([r['committee_code'] for r in similar_candidate_receipts]))
-                
                 results.append((False, {
-                    'reason': 'no_schedule_a_receipts', 
+                    'reason': 'no_schedule_a_receipts',
                     'committee_code': matched_committee['committee_code'],
-                    'candidate_name_normalized': candidate_name,
-                    'available_committee_codes_for_candidate': available_codes[:5],  # Limit to 5
+                    'candidate_name_normalized': matched_committee['candidate_name_normalized'],
                     'matched_committee_name': matched_committee.get('committee_name_normalized', 'N/A')
                 }))
                 continue
@@ -359,12 +337,6 @@ class OptimizedContributionMatcher:
             else:
                 # No match found - determine likely reasons
                 reasons = []
-                '''if best_match_info['best_score'] < self.fuzzy_threshold:
-                    reasons.append(f"best_name_score_{best_match_info['best_score']}_below_threshold_{self.fuzzy_threshold}")
-                if best_match_info['amount_matches'] == 0:
-                    reasons.append("no_amount_matches")
-                if best_match_info['date_matches'] == 0:
-                    reasons.append("no_date_matches")'''
                 if date_amount_match:
                     reasons.append("yes date + amount match combo")
                 
@@ -383,20 +355,18 @@ def get_unmatched_contributions_optimized(project_id: str,
                                         dataset_id: str,
                                         table_id: str,
                                         min_year: int = 2018,
-                                        fuzzy_threshold: int = 85,
                                         batch_size: int = 1000,
-                                        n_jobs: int = None,
                                         test_mode: bool = False,
                                         min_amount: int = 1000,
                                         committee_only: str = None) -> List[Dict[str, Any]]:
     """
-    Optimized version to find Schedule D expenses that are political contributions 
-    with no matching Schedule A receipts.
+    Find Schedule D expenses that are political contributions to candidate
+    campaign committees with no matching Schedule A receipt.
     """
-    
+
     # Initialize BigQuery client
     client = bigquery.Client(project=project_id)
-    matcher = OptimizedContributionMatcher(fuzzy_threshold, n_jobs)
+    matcher = OptimizedContributionMatcher()
 
     
     try:
@@ -499,7 +469,9 @@ def get_unmatched_contributions_optimized(project_id: str,
         WHERE 1=1
             AND transaction_type = 'ScheduleA'
             AND report_year >= @min_year
-            AND committee_type = 'Candidate Campaign Committee'
+            -- All committee types: non-candidate committees (PACs etc.) file
+            -- Schedule A too, so their receipts must be in the pool for
+            -- NOT-A-CC recipients to match.
             AND amount >= @min_amount  -- Match the Schedule D filter
             AND entity_name IS NOT NULL
             AND entity_name != ''
@@ -657,8 +629,6 @@ def get_unmatched_contributions_optimized(project_id: str,
                                 if 'committee_code' in match_info:
                                     logger.debug(f"Committee code: {match_info['committee_code']}")
                                     logger.debug(f"Committee name: {match_info.get('matched_committee_name', 'N/A')}")
-                                if 'available_committee_codes_for_candidate' in match_info:
-                                    logger.debug(f"Available codes for {match_info.get('candidate_name_normalized', 'N/A')}: {match_info['available_committee_codes_for_candidate']}")
                             else:
                                 logger.debug(f"Schedule A candidates checked: {match_info['total_candidates']}")
                                 logger.debug(f"Amount matches found: {match_info['amount_matches']}")
@@ -682,8 +652,6 @@ def get_unmatched_contributions_optimized(project_id: str,
 
                         if failure_info and 'reason' in failure_info:
                             contribution_record['failure_reason'] = failure_info['reason']
-                            if 'available_committee_codes_for_candidate' in failure_info:
-                                contribution_record['available_committee_codes'] = '; '.join(failure_info['available_committee_codes_for_candidate'])
                         elif failure_info and 'reasons' in failure_info:
                             contribution_record['failure_reason'] = '; '.join(failure_info['reasons']) if failure_info['reasons'] else 'no_match_found'
                             if failure_info.get('best_score', 0) > 0:
@@ -744,7 +712,7 @@ def print_unmatched_summary_optimized(results: List[Dict[str, Any]]):
     
     # Top recipients by amount
     print(f"\n🎯 Top 10 Recipients by Total Unmatched Amount:")
-    recipient_stats = df.groupby(['matched_candidate_name', 'matched_committee_name']).agg({
+    recipient_stats = df.groupby(['matched_candidate_name', 'matched_committee_name_normalized']).agg({
         'amount': ['sum', 'count'],
         'donor_committee_name_normalized': 'nunique'
     }).round(2)
@@ -768,12 +736,8 @@ def main():
                        help='Path to output CSV file (required)')
     parser.add_argument('--min-year', type=int, default=2018,
                        help='Minimum year to include in results (default: 2018)')
-    parser.add_argument('--fuzzy-threshold', type=int, default=85,
-                       help='Fuzzy matching threshold (default: 85)')
     parser.add_argument('--batch-size', type=int, default=1000,
                        help='Batch size for processing (default: 1000)')
-    parser.add_argument('--jobs', type=int, default=None,
-                       help='Number of parallel processes (default: auto)')
     parser.add_argument('--show-summary', action='store_true',
                        help='Display summary statistics')
     parser.add_argument('--test-mode', action='store_true',
@@ -801,9 +765,7 @@ def main():
             dataset_id=args.dataset,
             table_id=args.table,
             min_year=args.min_year,
-            fuzzy_threshold=args.fuzzy_threshold,
             batch_size=args.batch_size,
-            n_jobs=args.jobs,
             test_mode=args.test_mode,
             committee_only=args.committee_only,
             min_amount=args.min_amount

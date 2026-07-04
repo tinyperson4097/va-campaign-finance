@@ -1,0 +1,39 @@
+entity_type,raw_name,normalized_name,source,notes
+entity,DOMINION,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION EMPLOYEES PAC,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC PAC - VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC PAC - VIRGINIA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC.,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC. PAC,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC. PAC - VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY INC. PAC - VIRGINIA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENERGY PAC,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,"DOMINION ENERGY, INC.",DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION ENGERGY,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION PAC,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION PAC - VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION PAC OF VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION PAC VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION PAC-VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POLITICAL ACCTION COMMITEE,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POLITICAL ACTION COMITTEE,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POLITICAL ACTION COMMITTE - VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POLITICAL ACTION COMMITTEE,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POLITICAL ACTION COMMITTEE - VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POLITICAL ACTION COMMITTEE- VA LAST NAME LEFT BLANK,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POWER,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION POWER PAC,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION RESOURCES,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION RESOURCES INC. PAC - VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION VA POWER,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION VA. POWER,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINION-PAC-VA,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,DOMINIONENERGY,DOMINION ENERGY,hardcoded,EXACT_DOMINION_MATCHES in functions/name_normalization.py
+entity,CLEAN VA,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
+entity,CLEAN VA ACTION FUND,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
+entity,CLEAN VA FUND,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
+entity,CLEAN VA FUND (PAC),CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
+entity,CLEAN VA FUND PAC,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
+entity,CLEAN VA PAC,CLEAN VA FUND,hardcoded,EXACT_CLEAN_VA_MATCHES in functions/name_normalization.py
+candidate,CAT PORTERFIELD,CATHY PORTERFIELD,hardcoded,inline rule in normalize_name()

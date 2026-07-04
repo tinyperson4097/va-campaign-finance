@@ -1,7 +1,12 @@
 -- dim_candidate: person-level rollup, one row per candidate_name_normalized.
 -- A candidate can run multiple committees across cycles (committee_codes
 -- array); "most recent" attributes are picked by the latest report_date /
--- report_year seen for that candidate in cf_clean.
+-- report_year seen for that candidate in cf_clean. report_date is a raw
+-- string in mixed formats (MM/DD/YYYY old data, YYYY-MM-DD... new data), so
+-- ordering goes through parse_va_date -- comparing the strings directly would
+-- rank e.g. '12/31/2010' above '2024-01-01'.
+--
+-- Depends on `{{gold_dataset}}.parse_va_date` (sql/00_setup/udf_parse_date.sql).
 CREATE OR REPLACE TABLE `{{project_id}}.{{gold_dataset}}.dim_candidate` AS
 WITH candidate_reports AS (
   SELECT
@@ -15,7 +20,9 @@ WITH candidate_reports AS (
     report_date,
     ROW_NUMBER() OVER (
       PARTITION BY candidate_name_normalized
-      ORDER BY report_date DESC NULLS LAST, report_year DESC
+      ORDER BY
+        `{{project_id}}.{{gold_dataset}}.parse_va_date`(report_date) DESC NULLS LAST,
+        report_year DESC
     ) AS rn
   FROM `{{project_id}}.{{silver_dataset}}.cf_clean`
   WHERE candidate_name_normalized IS NOT NULL AND candidate_name_normalized != ''

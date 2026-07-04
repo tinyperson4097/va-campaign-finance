@@ -14,4 +14,5 @@ SELECT
 FROM `{{project_id}}.{{gold_dataset}}.fact_transaction`
 WHERE entity_name_normalized IS NOT NULL AND entity_name_normalized != ''
   AND committee_name_normalized IS NOT NULL AND committee_name_normalized != ''
+  AND NOT is_suspected_test_record
 GROUP BY source_name, target_name, edge_type, election_cycle, report_year;

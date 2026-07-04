@@ -446,7 +446,7 @@ class ScheduleHProcessor:
             'report_id': row.get('ReportId'),
             'committee_code': report_info.get('committee_code'),
             'committee_name': report_info.get('committee_name'),
-            'committee_name_normalized': normalize_name(report_info.get('commitee_name'), is_individual=False),
+            'committee_name_normalized': normalize_name(report_info.get('committee_name'), is_individual=False),
             'candidate_name': report_info.get('candidate_name'),
             'candidate_name_normalized': normalize_name(report_info.get('candidate_name'), is_individual=True),
             'report_year': report_info.get('report_year'),

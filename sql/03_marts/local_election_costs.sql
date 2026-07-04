@@ -16,10 +16,11 @@ WITH latest_per_candidate_cycle AS (
     *,
     ROW_NUMBER() OVER (
       PARTITION BY candidate_name_normalized, district_normal, office_sought_normal, election_cycle
-      ORDER BY report_date DESC
+      ORDER BY `{{project_id}}.{{gold_dataset}}.parse_va_date`(report_date) DESC NULLS LAST
     ) AS rn
   FROM `{{project_id}}.{{gold_dataset}}.fact_report_summary`
   WHERE level = 'local'
+    AND NOT REGEXP_CONTAINS(COALESCE(candidate_name_normalized, ''), r'\b(TESTER|TESTY)\b')
 )
 SELECT
   election_cycle,

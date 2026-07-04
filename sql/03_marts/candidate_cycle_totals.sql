@@ -15,5 +15,6 @@ SELECT
   COUNTIF(transaction_category = 'disbursement') AS disbursement_count
 FROM `{{project_id}}.{{gold_dataset}}.fact_transaction`
 WHERE candidate_name_normalized IS NOT NULL AND candidate_name_normalized != ''
+  AND NOT is_suspected_test_record
 GROUP BY candidate_name_normalized, election_cycle, report_year, office_sought_normal,
          district_normal, level, party;

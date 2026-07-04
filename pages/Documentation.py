@@ -145,7 +145,8 @@ COLUMN_DEFINITIONS = {
     "recipient_name_normalized": "Standardized name the expenditure was made out to.",
     "matched_committee_code": "committee_code this recipient_name_normalized was matched to via committee_mappings.",
     "matched_committee_name_normalized": "Standardized name of the matched recipient committee.",
-    "matched_candidate_name": "Candidate the matched recipient committee belongs to ('NOT A CC' if it's a non-candidate committee).",
+    "matched_candidate_name": "Candidate the matched recipient committee belongs to ('NOT A CC' if it's a non-candidate committee -- kept visible so results can be filtered to either kind; both kinds are matched against a Schedule A pool covering all committee types, since PACs file Schedule A too).",
+    "is_suspected_test_record": "TRUE if this row looks like one of the test/QA records the SBE leaves in its published data (names like 'Tester', addresses literally 'test'). Flagged rows are excluded from the mart tables and published in suspected_test_records for review.",
 }
 
 # Which script/function produced each *_normalized column, and (briefly) which
