@@ -48,6 +48,9 @@ WITH schedule_d AS (
       OR REGEXP_CONTAINS(LOWER(purpose), r'\bstate\s+committee\s+contribution\b')
       OR REGEXP_CONTAINS(LOWER(purpose), r'\bcontribution\b')
     )
+    -- Refund/share lines aren't incoming contributions and can't have a
+    -- Schedule A receipt (owner-approved exclusion, 2026-07-13).
+    AND NOT REGEXP_CONTAINS(LOWER(purpose), r'\b(refund|share)\b')
     AND amount >= 1000
     AND entity_name IS NOT NULL AND entity_name != '' AND LENGTH(entity_name) > 1
 ),

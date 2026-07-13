@@ -426,6 +426,9 @@ def get_unmatched_contributions_optimized(project_id: str,
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\bstate\\s+committee\\s+contribution\\b')
                 OR REGEXP_CONTAINS(LOWER(purpose), r'\\bcontribution\\b')
             )
+            -- Refund/share lines aren't incoming contributions and can't have
+            -- a Schedule A receipt (owner-approved exclusion, 2026-07-13).
+            AND NOT REGEXP_CONTAINS(LOWER(purpose), r'\\b(refund|share)\\b')
             AND amount >= @min_amount  -- Only consider contributions $1,000 and above
             AND entity_name IS NOT NULL
             AND entity_name != ''
